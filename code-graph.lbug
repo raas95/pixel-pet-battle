@@ -1,7 +1,7 @@
 project:
   name: pixel-virtual-pet
   generated: 2026-11-08
-  total_files: 40
+  total_files: 42
 
 files:
   lib/pet.ts:
@@ -43,14 +43,14 @@ files:
 
   lib/lanSync.ts:
     role: Client sync manager yang mendaftarkan pet device ke server dan mengambil daftar pet device lain yang online di jaringan yang sama.
-    exports: [LanSyncStatus, LanNeighborEntry, LAN_SYNC_POLL_MS, LAN_RE_PUSH_MS, queueLanPush, startLanSync, stopLanSync]
+    exports: [LanSyncStatus, LanNeighborEntry, LAN_SYNC_POLL_MS, LAN_RE_PUSH_MS, LAN_MAX_FAILURES, queueLanPush, startLanSync, stopLanSync]
     depends_on: [lib/pet.ts, lib/device.ts]
     key_functions:
       - name: startLanSync
         does: Menjalankan loop polling tiap 3 detik; meneruskan status koneksi dan daftar neighbor dari server, mendorong perubahan pet lokal, dan mengirim ulang pendaftaran tiap 60 detik agar pet tetap terdaftar walau server restart.
       - name: queueLanPush
         does: Mengantre push pet lokal dengan debounce 800 ms setelah aksi perubahan data.
-    notes: Pet device sendiri tidak pernah ditarik dari server (localStorage tetap sumber utama); status koneksi dan jumlah peer diteruskan ke store.
+    notes: Pet device sendiri tidak pernah ditarik dari server (localStorage tetap sumber utama); status offline baru dilaporkan setelah LAN_MAX_FAILURES (3) polling gagal berurutan — satu flap jaringan tidak mengubah indikator.
 
   lib/duel.ts:
     role: Konstanta dan tipe data bersama untuk duel antar device (dipakai route server, client, dan test).
@@ -59,14 +59,14 @@ files:
 
   lib/duelSync.ts:
     role: Client API dan polling state duel antar device ke route /api/duel.
-    exports: [DUEL_POLL_MS, DuelPlayerView, DuelEventView, DuelView, DuelSnapshot, challengePet, respondDuel, submitDuelAnswer, startDuelSync]
+    exports: [DUEL_POLL_MS, DUEL_MISS_TOLERANCE, DuelPlayerView, DuelEventView, DuelView, DuelSnapshot, challengePet, respondDuel, submitDuelAnswer, startDuelSync]
     depends_on: [lib/device.ts]
     key_functions:
       - name: startDuelSync
         does: Polling tiap 1,5 detik; hanya memanggil onSnapshot saat JSON respons berubah agar tidak memicu render berulang.
       - name: challengePet
         does: Mengirim tantangan duel beserta nama monster pengirim dan target.
-    notes: Hanya memforward data; seluruh state duel (incoming, duel aktif, hasil) ditampung di store/useDuelStore.
+    notes: Hysteresis DUEL_MISS_TOLERANCE (3): snapshot kosong setelah duel aktif ditahan dulu sebelum diteruskan, supaya request yang mendarat di instance server tanpa state duel (umum di serverless) tidak memicu redirect liar; fetch gagal tidak pernah mengosongkan duel.
 
   app/api/pet/route.ts:
     role: Route handler Next.js sebagai server sinkronisasi LAN; menyimpan pet milik tiap device terpisah dan mendaftarkan device yang sedang online agar bisa saling terlihat.
@@ -92,7 +92,7 @@ files:
         does: Membuat duel pending; menolak bila salah satu device sudah punya duel pending/active.
       - name: POST action respond
         does: Target menerima (duel jadi active, ronde 1 dengan sepasang perintah huruf acak yang berbeda + batas waktu) atau menolak (status declined).
-    notes: State duel disimpan di globalThis (tahan HMR, tidak dipersisten); duel pending kedaluwarsa 30 detik dan hasil akhir disimpan 60 detik; resolusi ronde bersifat lazy saat GET/POST; respons GET tidak memuat timestamp agar polling client bisa mendeteksi perubahan dengan andal.
+    notes: State duel disimpan di globalThis (tahan HMR) dan dipersisten best-effort ke .data/duel-sync.json agar instance baru/restart bisa melanjutkan duel yang sedang berjalan; duel pending kedaluwarsa 30 detik dan hasil akhir disimpan 60 detik; resolusi ronde bersifat lazy saat GET/POST; respons GET tidak memuat timestamp agar polling client bisa mendeteksi perubahan dengan andal.
 
   lib/letters.ts:
     role: Mengelola daftar huruf A-Z, konfigurasi ronde mini-game, tingkat kesulitan, dan utilitas pengacakan opsi huruf.
@@ -105,13 +105,13 @@ files:
         does: Memeriksa apakah input huruf termasuk dalam 4 pilihan huruf yang valid pada ronde aktif.
 
   store/useDuelStore.ts:
-    role: Store Zustand untuk state duel antar device; tantangan masuk, duel aktif/hasil, dan pemberitahuan penolakan.
-    exports: [DuelChallenge, DuelDeclinedNotice, useDuelStore]
+    role: Store Zustand untuk state duel antar device; tantangan masuk, duel aktif/hasil, pemberitahuan penolakan, dan pemberitahuan duel terputus.
+    exports: [DuelChallenge, DuelDeclinedNotice, DuelAbandonedNotice, useDuelStore]
     depends_on: [lib/duelSync.ts]
     key_functions:
       - name: applySnapshot
-        does: Menerjemahkan snapshot polling menjadi state store; status declined hanya diberitahukan ke penantang (players[0]); hasil akhir (finished) dipertahankan walau server sudah membersihkan duel agar layar hasil tidak hilang sebelum pengguna menutupnya.
-    notes: Duel yang hilang dari server (kedaluwarsa) dibersihkan otomatis kecuali hasil akhir yang belum dilihat.
+        does: Menerjemahkan snapshot polling menjadi state store; status declined hanya diberitahukan ke penantang (players[0]); hasil akhir (finished) dipertahankan walau server sudah membersihkan duel; duel aktif yang hilang (post-hysteresis) menghasilkan notice abandoned dengan pesan jelas.
+    notes: firstSyncDone menandai snapshot pertama selesai diproses — redirect halaman hanya boleh terjadi setelah itu, supaya refresh di tengah duel tidak langsung menendang pengguna ke Beranda.
 
   store/usePetStore.ts:
     role: Store Zustand global yang mengatur sinkronisasi state monster dan status mini-game antara React dan Phaser, serta status sinkronisasi LAN dan daftar monster tetangga.
@@ -249,12 +249,12 @@ files:
     notes: Tombol dinonaktifkan otomatis saat status permainan bukan MENUNGGU_JAWABAN.
 
   components/DuelManager.tsx:
-    role: Komponen global di layout untuk sinkronisasi duel; polling state, popup tantangan masuk (terima/tolak), popup penolakan, dan navigasi otomatis ke halaman duel saat duel aktif.
+    role: Komponen global di layout untuk sinkronisasi duel; polling state, popup tantangan masuk (terima/tolak), popup penolakan, popup duel terputus, dan navigasi satu arah (URL mengikuti state duel) yang baru aktif setelah sync pertama selesai.
     exports: [DuelManager]
     depends_on: [lib/device.ts, lib/duelSync.ts, store/useDuelStore.ts]
 
   app/duel/page.tsx:
-    role: Arena duel dua pemain; menampilkan HP dan daya serangan kedua monster, instruksi huruf bersuara, pilihan jawaban layar + keyboard, hitung mundur ronde, animasi projektil (terbang, tabrakan, kena), dan layar hasil akhir.
+    role: Arena duel dua pemain; menampilkan HP dan daya serangan kedua monster, instruksi huruf bersuara, pilihan jawaban layar + keyboard, hitung mundur ronde, animasi projektil (terbang, tabrakan, kena), layar hasil akhir, dan layar loading saat state duel pertama kali disinkronkan (aman saat refresh di tengah duel).
     exports: [default]
     depends_on: [components/PetSprite.tsx, lib/device.ts, lib/duelSync.ts, lib/letters.ts, lib/pet.ts, store/useDuelStore.ts, store/usePetStore.ts]
     key_functions:
@@ -313,9 +313,19 @@ files:
     depends_on: [lib/lanSync.ts, lib/pet.ts]
 
   tests/duelRoute.test.ts:
-    role: Pengujian unit route /api/duel; alur tantangan/respons, aturan streak (benar +1, salah -1, ke-4 meluncurkan projektil), tabrakan projektil, kemenangan, otorisasi pemain, dan timeout ronde.
+    role: Pengujian unit route /api/duel; alur tantangan/respons, aturan streak (benar +1, salah -1, ke-4 meluncurkan projektil), tabrakan projektil, kemenangan, otorisasi pemain, timeout ronde, dan pemulihan duel aktif dari persistensi disk.
     exports: []
-    depends_on: [app/api/duel/route.ts]
+    depends_on: [app/api/duel/route.ts, lib/duel.ts]
+
+  tests/duelSync.test.ts:
+    role: Pengujian unit hysteresis polling duel; snapshot kosong ditahan 3x setelah duel aktif, incoming diteruskan langsung, dan streak kosong ter-reset saat duel muncul kembali.
+    exports: []
+    depends_on: [lib/duelSync.ts]
+
+  tests/duelStore.test.ts:
+    role: Pengujian unit store duel; firstSyncDone, notice abandoned saat duel aktif hilang, dan hasil finished yang dipertahankan.
+    exports: []
+    depends_on: [store/useDuelStore.ts, lib/duelSync.ts]
 
 edges:
   - from: app/api/duel/route.ts

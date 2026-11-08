@@ -12,24 +12,35 @@ export type DuelDeclinedNotice = {
   opponentName: string;
 };
 
+export type DuelAbandonedNotice = {
+  message: string;
+};
+
 type DuelStoreState = {
   incoming: DuelChallenge | null;
   duel: DuelView | null;
   declined: DuelDeclinedNotice | null;
+  abandoned: DuelAbandonedNotice | null;
+  /** True setelah snapshot polling pertama diteruskan ke store. */
+  firstSyncDone: boolean;
 
   applySnapshot: (snapshot: DuelSnapshot, myDeviceId: string) => void;
   clearDuel: () => void;
   clearDeclined: () => void;
+  clearAbandoned: () => void;
 };
 
 export const useDuelStore = create<DuelStoreState>((set, get) => ({
   incoming: null,
   duel: null,
   declined: null,
+  abandoned: null,
+  firstSyncDone: false,
 
   applySnapshot: (snapshot, myDeviceId) => {
     const next: Partial<DuelStoreState> = {
       incoming: snapshot.incoming,
+      firstSyncDone: true,
     };
 
     const duel = snapshot.duel;
@@ -47,6 +58,14 @@ export const useDuelStore = create<DuelStoreState>((set, get) => ({
       // store agar layar hasil tidak hilang sebelum pengguna menutupnya.
       next.duel = get().duel ?? null;
     } else {
+      // Snapshot kosong diteruskan ke sini hanya setelah hysteresis
+      // duelSync lewati — artinya duel benar-benar tidak ada lagi di server.
+      if (get().duel?.status === "active") {
+        next.abandoned = {
+          message:
+            "Koneksi duel terputus: server tidak lagi menyimpan duel ini setelah beberapa kali percobaan.",
+        };
+      }
       next.duel = null;
     }
 
@@ -59,5 +78,9 @@ export const useDuelStore = create<DuelStoreState>((set, get) => ({
 
   clearDeclined: () => {
     set({ declined: null });
+  },
+
+  clearAbandoned: () => {
+    set({ abandoned: null });
   },
 }));

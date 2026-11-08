@@ -140,7 +140,7 @@ describe("lib/lanSync", () => {
     expect(countPosts()).toBe(2);
   });
 
-  it("menandai offline ketika server tidak terjangkau", async () => {
+  it("offline hanya dilaporkan setelah 3x polling gagal berurutan", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
     const onStatus = vi.fn();
 
@@ -149,9 +149,40 @@ describe("lib/lanSync", () => {
       onNeighbors: vi.fn(),
       onStatus,
     });
-    await vi.advanceTimersByTimeAsync(1);
 
+    // Dua kegagalan pertama: status bertahan (hysteresis).
+    await vi.advanceTimersByTimeAsync(1);
+    expect(lastStatus(onStatus)).not.toEqual(["offline", 0]);
+    await vi.advanceTimersByTimeAsync(LAN_SYNC_POLL_MS);
+    expect(lastStatus(onStatus)).not.toEqual(["offline", 0]);
+
+    // Kegagalan ke-3: status offline.
+    await vi.advanceTimersByTimeAsync(LAN_SYNC_POLL_MS);
     expect(lastStatus(onStatus)).toEqual(["offline", 0]);
+  });
+
+  it("kegagalan polling singkat lalu pulih tidak mengubah status", async () => {
+    let fail = true;
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      if (fail) throw new Error("network down");
+      return jsonResponse({ pets: [], peers: 2, now: 0 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onStatus = vi.fn();
+
+    startLanSync({
+      getLocalPet: () => createDefaultPet(1_000),
+      onNeighbors: vi.fn(),
+      onStatus,
+    });
+
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(LAN_SYNC_POLL_MS);
+    expect(lastStatus(onStatus)).not.toEqual(["offline", 0]);
+
+    fail = false;
+    await vi.advanceTimersByTimeAsync(LAN_SYNC_POLL_MS);
+    expect(lastStatus(onStatus)).toEqual(["online", 2]);
   });
 
   it("tidak mengirim ulang pet yang sudah terkirim", async () => {

@@ -32,6 +32,7 @@ export default function DuelPage() {
   const router = useRouter();
   const duel = useDuelStore((state) => state.duel);
   const clearDuel = useDuelStore((state) => state.clearDuel);
+  const firstSyncDone = useDuelStore((state) => state.firstSyncDone);
   const myPet = usePetStore((state) => state.pet);
   const neighbors = usePetStore((state) => state.lanNeighbors);
 
@@ -120,6 +121,21 @@ export default function DuelPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duel, me]);
+
+  // Sync pertama belum selesai (mis. setelah refresh di tengah duel):
+  // tahan tampilan dengan loading — jangan langsung menyatakan tidak ada duel.
+  if (!firstSyncDone) {
+    return (
+      <div className="pixel-card space-y-3 p-6 text-center">
+        <h1 className="font-pixel text-xl font-extrabold text-[#1e1b2e]">
+          ⚔️ Duel
+        </h1>
+        <p className="text-sm font-medium text-slate-600">
+          Menyinkronkan state duel...
+        </p>
+      </div>
+    );
+  }
 
   if (!duel) {
     return (

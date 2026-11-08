@@ -29,6 +29,10 @@ let lastPushedUpdatedAt = 0;
 let lastPushSuccessAt = 0;
 let pollTimer: number | null = null;
 let pushTimer: number | null = null;
+let consecutiveFailures = 0;
+
+/** Status offline baru dilaporkan setelah sebanyak ini polling gagal berurutan. */
+export const LAN_MAX_FAILURES = 3;
 
 async function request(
   method: "GET" | "POST",
@@ -89,9 +93,15 @@ async function pollTick(): Promise<void> {
   try {
     data = await request("GET");
   } catch {
-    callbacks.onStatus("offline", 0);
+    // Hysteresis: satu-dua polling gagal (mis. instance serverless baru)
+    // tidak langsung menurunkan status menjadi offline.
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= LAN_MAX_FAILURES) {
+      callbacks.onStatus("offline", 0);
+    }
     return;
   }
+  consecutiveFailures = 0;
 
   callbacks.onStatus("online", data.peers);
   callbacks.onNeighbors(data.pets);
@@ -130,4 +140,5 @@ export function stopLanSync(): void {
   activeCallbacks = null;
   lastPushedUpdatedAt = 0;
   lastPushSuccessAt = 0;
+  consecutiveFailures = 0;
 }
