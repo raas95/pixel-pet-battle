@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { PetActions } from "@/components/PetActions";
 import { NeighborPets } from "@/components/NeighborPets";
 import { NeighborWanderers } from "@/components/NeighborWanderers";
-import { PetSprite } from "@/components/PetSprite";
+import { StagePet } from "@/components/StagePet";
 import { PetStatus } from "@/components/PetStatus";
 import { getPetMood } from "@/lib/pet";
 import { usePetStore } from "@/store/usePetStore";
@@ -13,7 +13,6 @@ import { usePetStore } from "@/store/usePetStore";
 export default function PetCarePage() {
   const pet = usePetStore((state) => state.pet);
   const hydrated = usePetStore((state) => state.hydrated);
-  const reaction = usePetStore((state) => state.reaction);
   const renamePet = usePetStore((state) => state.renamePet);
 
   const [nameInput, setNameInput] = useState(pet.name);
@@ -101,29 +100,22 @@ export default function PetCarePage() {
         </div>
 
         {/* Monster Room Stage */}
-        <div className="relative flex min-h-[240px] flex-col items-center justify-center overflow-hidden rounded-xl border-[3px] border-[#1e1b2e] bg-gradient-to-b from-[#dbeafe] via-[#eff6ff] to-[#86efac] p-6">
+        <div
+          data-stage
+          className="relative min-h-[280px] overflow-hidden rounded-xl border-[3px] border-[#1e1b2e] bg-gradient-to-b from-[#dbeafe] via-[#eff6ff] to-[#86efac] p-6"
+        >
           <NeighborWanderers />
-          <div className="relative z-10 mb-2 flex items-center justify-center">
-            <PetSprite
-              pixels={pet.pixels}
-              size={160}
-              reaction={reaction}
-              mood={mood}
-              animated
-            />
+          <StagePet />
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center">
+            <p className="font-pixel rounded-md border-2 border-[#1e1b2e] bg-white/90 px-3 py-1 text-xs font-bold text-[#1e1b2e]">
+              Suasana hati:{" "}
+              {mood === "senang"
+                ? "Senang dan bersemangat!"
+                : mood === "biasa"
+                  ? "Tenang dan santai"
+                  : "Sedih, butuh perawatanmu!"}
+            </p>
           </div>
-          <div
-            aria-hidden="true"
-            className="relative z-10 -mt-2 h-4 w-28 rounded-full bg-[#1e1b2e]/20"
-          />
-          <p className="font-pixel relative z-10 mt-4 rounded-md border-2 border-[#1e1b2e] bg-white/90 px-3 py-1 text-xs font-bold text-[#1e1b2e]">
-            Suasana hati:{" "}
-            {mood === "senang"
-              ? "Senang dan bersemangat!"
-              : mood === "biasa"
-                ? "Tenang dan santai"
-                : "Sedih, butuh perawatanmu!"}
-          </p>
         </div>
       </section>
 

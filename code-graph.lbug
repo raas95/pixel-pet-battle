@@ -1,7 +1,7 @@
 project:
   name: pixel-virtual-pet
   generated: 2026-11-08
-  total_files: 32
+  total_files: 33
 
 files:
   lib/pet.ts:
@@ -187,6 +187,15 @@ files:
     depends_on: [store/usePetStore.ts, components/PetSprite.tsx]
     notes: Dibatasi maksimal 6 pengembara; animasi jalan memakai keyframes petWalk di globals.css.
 
+  components/StagePet.tsx:
+    role: Monster utama di panggung ruang perawatan; berjalan-jalan sendiri ke posisi acak, bisa di-drag and drop oleh pengguna ke mana saja di area panggung, dan tetap menampilkan animasi reaksi aksi perawatan saat sedang aktif.
+    exports: [StagePet]
+    depends_on: [store/usePetStore.ts, components/PetSprite.tsx, lib/pet.ts]
+    key_functions:
+      - name: handlePointerDown/Move/Up
+        does: Menangkap pointer (mouse & sentuh) untuk menyeret monster di dalam elemen [data-stage], mengikuti posisi pointer dalam persen area panggung dengan batas tepi.
+    notes: Wandering dijeda saat drag atau saat reaction store tidak idle; arah sprite menyesuaikan arah gerakan.
+
   components/GameCanvas.tsx:
     role: Pembungkus React untuk memuat kanvas Phaser secara dinamis di sisi klien dan mengelola siklus hidup instance Phaser.
     exports: [GameCanvas]
@@ -210,9 +219,9 @@ files:
     depends_on: [components/NeighborPets.tsx, components/PetSprite.tsx, components/PetStatus.tsx, lib/pet.ts, store/usePetStore.ts]
 
   app/pet/page.tsx:
-    role: Halaman ruang perawatan monster untuk mengubah nama monster, melihat panggung animasi reaksi beserta monster tetangga yang berkeliaran, status, aksi perawatan, dan daftar monster tetangga yang online.
+    role: Halaman ruang perawatan monster untuk mengubah nama monster, panggung dengan monster utama yang bisa di-drag dan berjalan-jalan bersama monster tetangga, status, aksi perawatan, dan daftar monster tetangga yang online.
     exports: [default]
-    depends_on: [components/PetActions.tsx, components/NeighborPets.tsx, components/NeighborWanderers.tsx, components/PetSprite.tsx, components/PetStatus.tsx, lib/pet.ts, store/usePetStore.ts]
+    depends_on: [components/PetActions.tsx, components/NeighborPets.tsx, components/NeighborWanderers.tsx, components/StagePet.tsx, components/PetStatus.tsx, lib/pet.ts, store/usePetStore.ts]
 
   app/pet/draw/page.tsx:
     role: Halaman rute editor pixel monster yang merender komponen PixelEditor dan tautan kembali ke perawatan.
@@ -373,6 +382,15 @@ edges:
   - from: app/pet/page.tsx
     to: components/NeighborWanderers.tsx
     via: import NeighborWanderers untuk panggung ruang perawatan
+  - from: app/pet/page.tsx
+    to: components/StagePet.tsx
+    via: import StagePet sebagai monster utama panggung
+  - from: components/StagePet.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore untuk pet, reaction, dan mood
+  - from: components/StagePet.tsx
+    to: components/PetSprite.tsx
+    via: import PetSprite untuk sprite monster utama
   - from: components/NeighborWanderers.tsx
     to: store/usePetStore.ts
     via: import usePetStore untuk daftar lanNeighbors
