@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { NeighborPets } from "@/components/NeighborPets";
 import { PetSprite } from "@/components/PetSprite";
 import { PetStatus } from "@/components/PetStatus";
 import { getPetMood } from "@/lib/pet";
@@ -108,6 +109,9 @@ export default function HomePage() {
           </p>
         </div>
       </section>
+
+      {/* Neighbor Monsters on the Same Network */}
+      <NeighborPets />
 
       {/* Local Data Reset Utility (Testing / Fresh Start) */}
       <section className="pixel-card flex flex-wrap items-center justify-between gap-3 bg-[#fffaf0] p-4">
