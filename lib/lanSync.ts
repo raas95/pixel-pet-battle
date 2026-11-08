@@ -4,6 +4,7 @@ import { getDeviceId } from "./device";
 export type LanSyncStatus = "connecting" | "online" | "offline";
 
 export const LAN_SYNC_POLL_MS = 3_000;
+export const LAN_RE_PUSH_MS = 60_000;
 const PUSH_DEBOUNCE_MS = 800;
 
 export type LanNeighborEntry = {
@@ -25,6 +26,7 @@ type LanSyncCallbacks = {
 
 let activeCallbacks: LanSyncCallbacks | null = null;
 let lastPushedUpdatedAt = 0;
+let lastPushSuccessAt = 0;
 let pollTimer: number | null = null;
 let pushTimer: number | null = null;
 
@@ -50,10 +52,15 @@ async function request(
 
 async function pushNow(pet: PetData): Promise<void> {
   if (!activeCallbacks) return;
-  if (pet.updatedAt <= lastPushedUpdatedAt) return;
+
+  const hasNewData = pet.updatedAt > lastPushedUpdatedAt;
+  const registrationStale = Date.now() - lastPushSuccessAt >= LAN_RE_PUSH_MS;
+  if (!hasNewData && !registrationStale) return;
+
   try {
     await request("POST", pet);
-    lastPushedUpdatedAt = pet.updatedAt;
+    lastPushedUpdatedAt = Math.max(lastPushedUpdatedAt, pet.updatedAt);
+    lastPushSuccessAt = Date.now();
   } catch {
     // Status offline is handled by the poll loop.
   }
@@ -89,11 +96,9 @@ async function pollTick(): Promise<void> {
   callbacks.onStatus("online", data.peers);
   callbacks.onNeighbors(data.pets);
 
-  // Catch up changes made while pushes were failing or before sync started.
-  const local = callbacks.getLocalPet();
-  if (local.updatedAt > lastPushedUpdatedAt) {
-    await pushNow(local);
-  }
+  // Push new changes, and re-register periodically so the pet stays visible
+  // even after the sync server restarts or loses its stored data.
+  await pushNow(callbacks.getLocalPet());
 }
 
 /**
@@ -124,4 +129,5 @@ export function stopLanSync(): void {
   }
   activeCallbacks = null;
   lastPushedUpdatedAt = 0;
+  lastPushSuccessAt = 0;
 }

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  LAN_RE_PUSH_MS,
   LAN_SYNC_POLL_MS,
   LanNeighborEntry,
   LanSyncStatus,
@@ -39,7 +40,7 @@ describe("lib/lanSync", () => {
     const neighbors: LanNeighborEntry[] = [
       { deviceId: "dev-x", pet: { ...createDefaultPet(1), name: "X" } },
     ];
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = vi.fn().mockImplementation(async () =>
       jsonResponse({ pets: neighbors, peers: 2, now: 0 })
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -86,7 +87,7 @@ describe("lib/lanSync", () => {
 
   it("queueLanPush mengirim perubahan lokal dengan debounce", async () => {
     const local: PetData = { ...createDefaultPet(9_000), name: "DariAksi" };
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = vi.fn().mockImplementation(async () =>
       jsonResponse({ pets: [], peers: 1, now: 0 })
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -99,12 +100,44 @@ describe("lib/lanSync", () => {
     await vi.advanceTimersByTimeAsync(1);
     fetchMock.mockClear();
 
-    queueLanPush(local);
-    queueLanPush(local);
+    // Simulasi aksi lokal: pet berubah (updatedAt lebih baru) lalu di-push.
+    const updated: PetData = { ...local, updatedAt: 9_500 };
+    queueLanPush(updated);
+    queueLanPush(updated);
     await vi.advanceTimersByTimeAsync(900);
 
     const postCalls = fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "POST");
     expect(postCalls.length).toBe(1);
+    const body = JSON.parse(String((postCalls[0][1] as RequestInit).body)) as { pet: PetData };
+    expect(body.pet.updatedAt).toBe(9_500);
+  });
+
+  it("mengirim ulang pendaftaran secara berkala meski data tidak berubah", async () => {
+    const local = createDefaultPet(1_000);
+    const fetchMock = vi.fn().mockImplementation(async () =>
+      jsonResponse({ pets: [], peers: 1, now: 0 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    startLanSync({
+      getLocalPet: () => local,
+      onNeighbors: vi.fn(),
+      onStatus: vi.fn(),
+    });
+    await vi.advanceTimersByTimeAsync(LAN_SYNC_POLL_MS);
+
+    const countPosts = () =>
+      fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "POST").length;
+
+    expect(countPosts()).toBe(1);
+
+    // Belum sampai interval re-push: tidak ada POST tambahan.
+    await vi.advanceTimersByTimeAsync(LAN_RE_PUSH_MS - LAN_SYNC_POLL_MS * 2);
+    expect(countPosts()).toBe(1);
+
+    // Lewat interval re-push: pendaftaran dikirim ulang.
+    await vi.advanceTimersByTimeAsync(LAN_SYNC_POLL_MS * 2);
+    expect(countPosts()).toBe(2);
   });
 
   it("menandai offline ketika server tidak terjangkau", async () => {
@@ -123,7 +156,7 @@ describe("lib/lanSync", () => {
 
   it("tidak mengirim ulang pet yang sudah terkirim", async () => {
     const local = createDefaultPet(1_000);
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = vi.fn().mockImplementation(async () =>
       jsonResponse({ pets: [], peers: 1, now: 0 })
     );
     vi.stubGlobal("fetch", fetchMock);

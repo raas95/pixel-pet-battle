@@ -43,11 +43,11 @@ files:
 
   lib/lanSync.ts:
     role: Client sync manager yang mendaftarkan pet device ke server dan mengambil daftar pet device lain yang online di jaringan yang sama.
-    exports: [LanSyncStatus, LanNeighborEntry, LAN_SYNC_POLL_MS, queueLanPush, startLanSync, stopLanSync]
+    exports: [LanSyncStatus, LanNeighborEntry, LAN_SYNC_POLL_MS, LAN_RE_PUSH_MS, queueLanPush, startLanSync, stopLanSync]
     depends_on: [lib/pet.ts, lib/device.ts]
     key_functions:
       - name: startLanSync
-        does: Menjalankan loop polling tiap 3 detik; meneruskan status koneksi dan daftar neighbor dari server, serta mendorong pet lokal yang belum pernah atau belum sempat terkirim.
+        does: Menjalankan loop polling tiap 3 detik; meneruskan status koneksi dan daftar neighbor dari server, mendorong perubahan pet lokal, dan mengirim ulang pendaftaran tiap 60 detik agar pet tetap terdaftar walau server restart.
       - name: queueLanPush
         does: Mengantre push pet lokal dengan debounce 800 ms setelah aksi perubahan data.
     notes: Pet device sendiri tidak pernah ditarik dari server (localStorage tetap sumber utama); status koneksi dan jumlah peer diteruskan ke store.
@@ -199,9 +199,9 @@ files:
     depends_on: [components/NavBar.tsx, components/StoreHydrator.tsx]
 
   app/page.tsx:
-    role: Halaman beranda yang menampilkan hero monster aktif, ringkasan status, panduan alur game, dan tombol reset data lokal.
+    role: Halaman beranda yang menampilkan hero monster aktif, ringkasan status, panduan alur game, daftar monster tetangga yang online, dan tombol reset data lokal.
     exports: [default]
-    depends_on: [components/PetSprite.tsx, components/PetStatus.tsx, lib/pet.ts, store/usePetStore.ts]
+    depends_on: [components/NeighborPets.tsx, components/PetSprite.tsx, components/PetStatus.tsx, lib/pet.ts, store/usePetStore.ts]
 
   app/pet/page.tsx:
     role: Halaman ruang perawatan monster untuk mengubah nama monster, melihat panggung animasi reaksi, status, aksi perawatan, dan daftar monster tetangga yang online.
@@ -346,6 +346,9 @@ edges:
   - from: app/page.tsx
     to: components/PetSprite.tsx
     via: import PetSprite
+  - from: app/page.tsx
+    to: components/NeighborPets.tsx
+    via: import NeighborPets
   - from: app/page.tsx
     to: components/PetStatus.tsx
     via: import PetStatus
