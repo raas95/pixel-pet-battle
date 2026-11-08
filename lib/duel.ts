@@ -24,7 +24,8 @@ export type Duel = {
   status: "pending" | "active" | "finished" | "declined";
   players: [DuelPlayer, DuelPlayer];
   round: number;
-  command: string | null;
+  /** Perintah huruf per pemain — commands[0] untuk players[0], berbeda satu sama lain. */
+  commands: [string | null, string | null];
   roundEndsAt: number | null;
   winner: string | null;
   lastEvent: DuelEvent | null;
