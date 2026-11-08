@@ -170,6 +170,22 @@ body {
   animation: petSleeping 1.8s ease-in-out infinite;
 }
 
+@keyframes petWalk {
+  0%,
+  50%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  25%,
+  75% {
+    transform: translateY(-6px) rotate(2deg);
+  }
+}
+
+.animate-pet-walk {
+  animation: petWalk 0.5s linear infinite;
+}
+
 .animate-pet-sad {
   animation: petSad 1.5s ease-in-out infinite;
 }

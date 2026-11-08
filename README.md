@@ -8,7 +8,7 @@ Game browser interaktif yang menggabungkan perawatan virtual pet, editor sprite 
 - **Perawatan Monster (`/pet`)**: Memberi makan, mengajak bermain, menidurkan monster, mengubah nama, serta pembaruan status otomatis (0–100) dengan batas penurunan offline.
 - **Editor Pixel (`/pet/draw`)**: Kanvas 32 × 32 dengan pensil, penghapus, fill area, pengambil warna, palet + color picker, undo/redo, pratinjau animasi nearest-neighbor, dukungan mouse & layar sentuh, serta validasi gambar kosong.
 - **Mini-Game Suara (`/play`)**: Phaser canvas dengan instruksi suara *"Tekan [huruf]"* (`public/audio/letters/a.mp3`–`z.mp3`), 4 pilihan huruf acak unik, dukungan tombol layar & keyboard, animasi berlari/jatuh, 3 nyawa, 10 ronde menang, serta hadiah ke status monster.
-- **Sinkronisasi LAN**: Setiap device punya monster sendiri yang tidak saling menimpa. Device yang online di jaringan yang sama bisa saling melihat monster satu sama lain di bagian "Monster Tetangga" (tersedia di Beranda dan halaman Rawat), lengkap dengan nama dan kondisinya, diperbarui otomatis tiap ±3 detik.
+- **Sinkronisasi LAN**: Setiap device punya monster sendiri yang tidak saling menimpa. Device yang online di jaringan yang sama bisa saling melihat monster satu sama lain: monster tetangga berkeliaran di panggung ruang perawatan sambil jalan-jalan, dan tercantum di panel "Monster Tetangga" (tersedia di Beranda dan halaman Rawat) lengkap dengan nama dan kondisinya, diperbarui otomatis tiap ±3 detik.
 
 ## Main Bersama di Satu WiFi
 

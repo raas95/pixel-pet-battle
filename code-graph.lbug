@@ -1,7 +1,7 @@
 project:
   name: pixel-virtual-pet
   generated: 2026-11-08
-  total_files: 31
+  total_files: 32
 
 files:
   lib/pet.ts:
@@ -181,6 +181,12 @@ files:
     exports: [NeighborPets]
     depends_on: [store/usePetStore.ts, components/PetSprite.tsx, lib/pet.ts]
 
+  components/NeighborWanderers.tsx:
+    role: Renderer monster tetangga yang berkeliaran di panggung ruang perawatan; setiap monster berpindah posisi acak dengan transisi halus, animasi jalan, arah menghadap, dan label nama.
+    exports: [NeighborWanderers]
+    depends_on: [store/usePetStore.ts, components/PetSprite.tsx]
+    notes: Dibatasi maksimal 6 pengembara; animasi jalan memakai keyframes petWalk di globals.css.
+
   components/GameCanvas.tsx:
     role: Pembungkus React untuk memuat kanvas Phaser secara dinamis di sisi klien dan mengelola siklus hidup instance Phaser.
     exports: [GameCanvas]
@@ -204,9 +210,9 @@ files:
     depends_on: [components/NeighborPets.tsx, components/PetSprite.tsx, components/PetStatus.tsx, lib/pet.ts, store/usePetStore.ts]
 
   app/pet/page.tsx:
-    role: Halaman ruang perawatan monster untuk mengubah nama monster, melihat panggung animasi reaksi, status, aksi perawatan, dan daftar monster tetangga yang online.
+    role: Halaman ruang perawatan monster untuk mengubah nama monster, melihat panggung animasi reaksi beserta monster tetangga yang berkeliaran, status, aksi perawatan, dan daftar monster tetangga yang online.
     exports: [default]
-    depends_on: [components/PetActions.tsx, components/NeighborPets.tsx, components/PetSprite.tsx, components/PetStatus.tsx, lib/pet.ts, store/usePetStore.ts]
+    depends_on: [components/PetActions.tsx, components/NeighborPets.tsx, components/NeighborWanderers.tsx, components/PetSprite.tsx, components/PetStatus.tsx, lib/pet.ts, store/usePetStore.ts]
 
   app/pet/draw/page.tsx:
     role: Halaman rute editor pixel monster yang merender komponen PixelEditor dan tautan kembali ke perawatan.
@@ -364,6 +370,15 @@ edges:
   - from: app/pet/page.tsx
     to: components/NeighborPets.tsx
     via: import NeighborPets
+  - from: app/pet/page.tsx
+    to: components/NeighborWanderers.tsx
+    via: import NeighborWanderers untuk panggung ruang perawatan
+  - from: components/NeighborWanderers.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore untuk daftar lanNeighbors
+  - from: components/NeighborWanderers.tsx
+    to: components/PetSprite.tsx
+    via: import PetSprite untuk sprite tiap pengembara
   - from: app/pet/draw/page.tsx
     to: components/PixelEditor.tsx
     via: import PixelEditor
