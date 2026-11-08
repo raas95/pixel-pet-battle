@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LAN_SYNC_POLL_MS,
+  LanNeighborEntry,
   LanSyncStatus,
   queueLanPush,
   startLanSync,
@@ -34,71 +35,65 @@ describe("lib/lanSync", () => {
     vi.useRealTimers();
   });
 
-  it("mengambil pet dari server ketika server lebih baru", async () => {
-    const remote: PetData = { ...createDefaultPet(5_000), name: "Remote" };
-    const local = createDefaultPet(1_000);
+  it("meneruskan daftar tetangga dari server ke callback", async () => {
+    const neighbors: LanNeighborEntry[] = [
+      { deviceId: "dev-x", pet: { ...createDefaultPet(1), name: "X" } },
+    ];
     const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ pet: remote, peers: 2, now: 0 })
+      jsonResponse({ pets: neighbors, peers: 2, now: 0 })
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const onRemotePet = vi.fn();
+    const onNeighbors = vi.fn();
     const onStatus = vi.fn();
     startLanSync({
-      getLocalPet: () => local,
-      onRemotePet,
+      getLocalPet: () => createDefaultPet(1_000),
+      onNeighbors,
       onStatus,
     });
 
     await vi.advanceTimersByTimeAsync(1);
 
-    expect(onRemotePet).toHaveBeenCalledWith(remote);
+    expect(onNeighbors).toHaveBeenCalledWith(neighbors);
     expect(lastStatus(onStatus)).toEqual(["online", 2]);
   });
 
-  it("mengirim pet lokal ketika lokal lebih baru dari server", async () => {
-    let serverPet: PetData | null = createDefaultPet(500);
+  it("mengirim pet lokal saat poll pertama karena belum pernah terkirim", async () => {
     const local: PetData = { ...createDefaultPet(9_000), name: "Lokal" };
+    let serverPets: LanNeighborEntry[] = [];
     const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
         const body = JSON.parse(String(init.body)) as { pet: PetData; deviceId: string };
-        serverPet = body.pet;
-        return jsonResponse({ pet: serverPet, peers: 1, now: 0, accepted: true });
+        serverPets = [{ deviceId: body.deviceId, pet: body.pet }];
+        return jsonResponse({ pets: serverPets, peers: 1, now: 0, accepted: true });
       }
-      return jsonResponse({ pet: serverPet, peers: 1, now: 0 });
+      return jsonResponse({ pets: serverPets, peers: 1, now: 0 });
     });
     vi.stubGlobal("fetch", fetchMock);
 
     startLanSync({
       getLocalPet: () => local,
-      onRemotePet: vi.fn(),
+      onNeighbors: vi.fn(),
       onStatus: vi.fn(),
     });
-
     await vi.advanceTimersByTimeAsync(1);
 
     const postCalls = fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "POST");
-    expect(postCalls.length).toBeGreaterThan(0);
+    expect(postCalls.length).toBe(1);
     const body = JSON.parse(String((postCalls[0][1] as RequestInit).body)) as { pet: PetData };
     expect(body.pet.name).toBe("Lokal");
   });
 
   it("queueLanPush mengirim perubahan lokal dengan debounce", async () => {
-    let serverPet: PetData | null = createDefaultPet(500);
     const local: PetData = { ...createDefaultPet(9_000), name: "DariAksi" };
-    const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        const body = JSON.parse(String(init.body)) as { pet: PetData };
-        serverPet = body.pet;
-        return jsonResponse({ pet: serverPet, peers: 1, now: 0, accepted: true });
-      }
-      return jsonResponse({ pet: serverPet, peers: 1, now: 0 });
-    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ pets: [], peers: 1, now: 0 })
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     startLanSync({
-      getLocalPet: () => serverPet ?? local,
-      onRemotePet: vi.fn(),
+      getLocalPet: () => local,
+      onNeighbors: vi.fn(),
       onStatus: vi.fn(),
     });
     await vi.advanceTimersByTimeAsync(1);
@@ -118,7 +113,7 @@ describe("lib/lanSync", () => {
 
     startLanSync({
       getLocalPet: () => createDefaultPet(1_000),
-      onRemotePet: vi.fn(),
+      onNeighbors: vi.fn(),
       onStatus,
     });
     await vi.advanceTimersByTimeAsync(1);
@@ -126,23 +121,21 @@ describe("lib/lanSync", () => {
     expect(lastStatus(onStatus)).toEqual(["offline", 0]);
   });
 
-  it("tidak push atau pull saat updatedAt sama", async () => {
-    const same = createDefaultPet(1_000);
+  it("tidak mengirim ulang pet yang sudah terkirim", async () => {
+    const local = createDefaultPet(1_000);
     const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ pet: same, peers: 1, now: 0 })
+      jsonResponse({ pets: [], peers: 1, now: 0 })
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const onRemotePet = vi.fn();
     startLanSync({
-      getLocalPet: () => same,
-      onRemotePet,
+      getLocalPet: () => local,
+      onNeighbors: vi.fn(),
       onStatus: vi.fn(),
     });
-    await vi.advanceTimersByTimeAsync(LAN_SYNC_POLL_MS * 2);
+    await vi.advanceTimersByTimeAsync(LAN_SYNC_POLL_MS * 3);
 
-    expect(onRemotePet).not.toHaveBeenCalled();
     const postCalls = fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "POST");
-    expect(postCalls.length).toBe(0);
+    expect(postCalls.length).toBe(1);
   });
 });

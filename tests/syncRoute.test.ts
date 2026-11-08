@@ -44,49 +44,50 @@ describe("route sinkronisasi LAN /api/pet", () => {
     route = await importFreshRoute();
   });
 
-  it("GET awal mengembalikan pet null dan menghitung device sebagai peer", async () => {
+  it("GET awal mengembalikan daftar pet kosong dan menghitung device sebagai peer", async () => {
     const res = await route.GET(makeGet("dev-a"));
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.pet).toBeNull();
+    expect(data.pets).toEqual([]);
     expect(data.peers).toBe(1);
   });
 
-  it("POST menyimpan pet dan GET mengembalikannya", async () => {
-    const pet = { ...createDefaultPet(1_000), name: "Bimo" };
-    const postRes = await route.POST(makePost({ pet }));
-    expect(postRes.status).toBe(200);
-    const postData = await postRes.json();
-    expect(postData.accepted).toBe(true);
+  it("POST menyimpan pet per device dan device lain bisa melihatnya", async () => {
+    const petA = { ...createDefaultPet(1_000), name: "Andi" };
+    await route.POST(makePost({ pet: petA }, "dev-a"));
 
-    const getRes = await route.GET(makeGet("dev-a"));
-    const getData = await getRes.json();
-    expect(getData.pet.name).toBe("Bimo");
-    expect(getData.pet.updatedAt).toBe(1_000);
+    const res = await route.GET(makeGet("dev-b"));
+    const data = await res.json();
+    expect(data.peers).toBe(2);
+    expect(data.pets).toHaveLength(1);
+    expect(data.pets[0].deviceId).toBe("dev-a");
+    expect(data.pets[0].pet.name).toBe("Andi");
   });
 
-  it("konflik ditutup dengan last-write-wins berdasarkan updatedAt", async () => {
-    const older = { ...createDefaultPet(500), name: "Lama" };
-    const newer = { ...createDefaultPet(2_000), name: "Baru" };
+  it("tiap device menyimpan pet sendiri tanpa saling menimpa", async () => {
+    const petA = { ...createDefaultPet(1_000), name: "Andi" };
+    const petB = { ...createDefaultPet(2_000), name: "Budi" };
 
-    await route.POST(makePost({ pet: newer }));
-    const staleRes = await route.POST(makePost({ pet: older }));
+    await route.POST(makePost({ pet: petA }, "dev-a"));
+    await route.POST(makePost({ pet: petB }, "dev-b"));
+
+    const res = await route.GET(makeGet("dev-c"));
+    const data = await res.json();
+    const names = data.pets.map((entry: { pet: { name: string } }) => entry.pet.name);
+    expect(names.sort()).toEqual(["Andi", "Budi"]);
+  });
+
+  it("konflik per device ditutup dengan last-write-wins berdasarkan updatedAt", async () => {
+    const newer = { ...createDefaultPet(2_000), name: "Baru" };
+    const older = { ...createDefaultPet(500), name: "Lama" };
+
+    await route.POST(makePost({ pet: newer }, "dev-a"));
+    const staleRes = await route.POST(makePost({ pet: older }, "dev-a"));
     expect((await staleRes.json()).accepted).toBe(false);
 
     const getRes = await route.GET(makeGet("dev-a"));
-    expect((await getRes.json()).pet.name).toBe("Baru");
-  });
-
-  it("POST dengan data lebih baru menimpa data lama", async () => {
-    const older = { ...createDefaultPet(100), name: "Lama" };
-    const newer = { ...createDefaultPet(9_000), name: "Menang" };
-
-    await route.POST(makePost({ pet: older }));
-    const res = await route.POST(makePost({ pet: newer }));
-    expect((await res.json()).accepted).toBe(true);
-
-    const getRes = await route.GET(makeGet("dev-a"));
-    expect((await getRes.json()).pet.name).toBe("Menang");
+    const entry = (await getRes.json()).pets[0];
+    expect(entry.pet.name).toBe("Baru");
   });
 
   it("menolak body tanpa field pet", async () => {
@@ -100,19 +101,20 @@ describe("route sinkronisasi LAN /api/pet", () => {
       hunger: 500,
       energy: -20,
     };
-    await route.POST(makePost({ pet: weird }));
-    const getRes = await route.GET(makeGet("dev-a"));
-    const pet = (await getRes.json()).pet;
-    expect(pet.hunger).toBe(100);
-    expect(pet.energy).toBe(0);
+    await route.POST(makePost({ pet: weird }, "dev-a"));
+
+    const getRes = await route.GET(makeGet("dev-b"));
+    const entry = (await getRes.json()).pets[0];
+    expect(entry.pet.hunger).toBe(100);
+    expect(entry.pet.energy).toBe(0);
   });
 
-  it("menghitung banyak device unik sebagai peer", async () => {
-    await route.GET(makeGet("dev-a"));
-    await route.GET(makeGet("dev-b"));
-    await route.GET(makeGet("dev-a"));
+  it("pet milik sendiri ikut tercantum di daftar (client yang menyaringnya)", async () => {
+    const petA = { ...createDefaultPet(1_000), name: "Andi" };
+    await route.POST(makePost({ pet: petA }, "dev-a"));
 
-    const res = await route.GET(makeGet("dev-c"));
-    expect((await res.json()).peers).toBe(3);
+    const res = await route.GET(makeGet("dev-a"));
+    const data = await res.json();
+    expect(data.pets.map((e: { deviceId: string }) => e.deviceId)).toContain("dev-a");
   });
 });

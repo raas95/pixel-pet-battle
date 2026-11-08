@@ -6,20 +6,25 @@ export type LanSyncStatus = "connecting" | "online" | "offline";
 export const LAN_SYNC_POLL_MS = 3_000;
 const PUSH_DEBOUNCE_MS = 800;
 
+export type LanNeighborEntry = {
+  deviceId: string;
+  pet: PetData;
+};
+
 type SyncServerResponse = {
-  pet: PetData | null;
+  pets: LanNeighborEntry[];
   peers: number;
   now: number;
 };
 
 type LanSyncCallbacks = {
   getLocalPet: () => PetData;
-  onRemotePet: (pet: PetData) => void;
+  onNeighbors: (neighbors: LanNeighborEntry[]) => void;
   onStatus: (status: LanSyncStatus, peers: number) => void;
 };
 
 let activeCallbacks: LanSyncCallbacks | null = null;
-let remoteUpdatedAt = 0;
+let lastPushedUpdatedAt = 0;
 let pollTimer: number | null = null;
 let pushTimer: number | null = null;
 
@@ -32,7 +37,9 @@ async function request(
     method,
     cache: "no-store",
     headers: pet ? { "Content-Type": "application/json" } : undefined,
-    body: pet ? JSON.stringify({ pet, deviceId: getDeviceId() }) : undefined,
+    body: pet
+      ? JSON.stringify({ pet, deviceId: getDeviceId() })
+      : undefined,
   });
 
   if (!response.ok) {
@@ -43,13 +50,12 @@ async function request(
 
 async function pushNow(pet: PetData): Promise<void> {
   if (!activeCallbacks) return;
-  if (pet.updatedAt <= remoteUpdatedAt) return;
+  if (pet.updatedAt <= lastPushedUpdatedAt) return;
   try {
-    const data = await request("POST", pet);
-    remoteUpdatedAt = data.pet?.updatedAt ?? remoteUpdatedAt;
-    activeCallbacks.onStatus("online", data.peers);
+    await request("POST", pet);
+    lastPushedUpdatedAt = pet.updatedAt;
   } catch {
-    activeCallbacks.onStatus("offline", 0);
+    // Status offline is handled by the poll loop.
   }
 }
 
@@ -58,7 +64,6 @@ async function pushNow(pet: PetData): Promise<void> {
  */
 export function queueLanPush(pet: PetData): void {
   if (!activeCallbacks) return;
-  if (pet.updatedAt <= remoteUpdatedAt) return;
 
   if (pushTimer !== null) {
     window.clearTimeout(pushTimer);
@@ -81,13 +86,12 @@ async function pollTick(): Promise<void> {
     return;
   }
 
-  remoteUpdatedAt = data.pet?.updatedAt ?? 0;
   callbacks.onStatus("online", data.peers);
+  callbacks.onNeighbors(data.pets);
 
+  // Catch up changes made while pushes were failing or before sync started.
   const local = callbacks.getLocalPet();
-  if (data.pet && data.pet.updatedAt > local.updatedAt) {
-    callbacks.onRemotePet(data.pet);
-  } else if (local.updatedAt > remoteUpdatedAt) {
+  if (local.updatedAt > lastPushedUpdatedAt) {
     await pushNow(local);
   }
 }
@@ -119,4 +123,5 @@ export function stopLanSync(): void {
     pushTimer = null;
   }
   activeCallbacks = null;
+  lastPushedUpdatedAt = 0;
 }

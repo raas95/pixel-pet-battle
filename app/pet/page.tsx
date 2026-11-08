@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PetActions } from "@/components/PetActions";
+import { NeighborPets } from "@/components/NeighborPets";
 import { PetSprite } from "@/components/PetSprite";
 import { PetStatus } from "@/components/PetStatus";
 import { getPetMood } from "@/lib/pet";
@@ -129,6 +130,9 @@ export default function PetCarePage() {
 
       {/* Care Buttons */}
       <PetActions />
+
+      {/* Neighbor Monsters on the Same Network */}
+      <NeighborPets />
     </div>
   );
 }

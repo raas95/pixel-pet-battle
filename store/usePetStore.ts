@@ -38,6 +38,17 @@ export type MiniGameRewardSummary = {
   isNewHighScore: boolean;
 };
 
+export type LanNeighbor = {
+  deviceId: string;
+  name: string;
+  pixels: string[][];
+  hunger: number;
+  happiness: number;
+  energy: number;
+  mood: "senang" | "biasa" | "sedih";
+  updatedAt: number;
+};
+
 type MiniGameSnapshot = {
   gameState: MiniGameState;
   round: number;
@@ -59,6 +70,7 @@ type PetStoreState = {
 
   lanStatus: LanSyncStatus;
   lanPeers: number;
+  lanNeighbors: LanNeighbor[];
 
   gameState: MiniGameState;
   round: number;
@@ -84,7 +96,7 @@ type PetStoreState = {
   resetAllData: () => void;
 
   setLanStatus: (status: LanSyncStatus, peers: number) => void;
-  applyRemotePet: (pet: PetData) => void;
+  setLanNeighbors: (neighbors: LanNeighbor[]) => void;
 
   resetMiniGameSession: () => void;
   setMiniGameSnapshot: (patch: Partial<MiniGameSnapshot>) => void;
@@ -115,6 +127,7 @@ export const usePetStore = create<PetStoreState>((set, get) => ({
 
   lanStatus: "offline",
   lanPeers: 0,
+  lanNeighbors: [],
 
   ...INITIAL_GAME_STATE,
 
@@ -234,10 +247,8 @@ export const usePetStore = create<PetStoreState>((set, get) => ({
     set({ lanStatus: status, lanPeers: peers });
   },
 
-  applyRemotePet: (pet) => {
-    const decayed = applyTimeDecay(pet, Date.now());
-    savePetData(decayed);
-    set({ pet: decayed, hydrated: true });
+  setLanNeighbors: (neighbors) => {
+    set({ lanNeighbors: neighbors });
   },
 
   resetMiniGameSession: () => {

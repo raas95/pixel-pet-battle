@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 import { usePetStore } from "@/store/usePetStore";
+import { getDeviceId } from "@/lib/device";
+import { getPetMood } from "@/lib/pet";
 import { startLanSync } from "@/lib/lanSync";
 
 export function StoreHydrator() {
@@ -11,9 +13,26 @@ export function StoreHydrator() {
   useEffect(() => {
     hydrate();
 
+    const ownDeviceId = getDeviceId();
     const stopLanSync = startLanSync({
       getLocalPet: () => usePetStore.getState().pet,
-      onRemotePet: (pet) => usePetStore.getState().applyRemotePet(pet),
+      onNeighbors: (entries) =>
+        usePetStore
+          .getState()
+          .setLanNeighbors(
+            entries
+              .filter((entry) => entry.deviceId !== ownDeviceId)
+              .map((entry) => ({
+                deviceId: entry.deviceId,
+                name: entry.pet.name,
+                pixels: entry.pet.pixels,
+                hunger: entry.pet.hunger,
+                happiness: entry.pet.happiness,
+                energy: entry.pet.energy,
+                mood: getPetMood(entry.pet),
+                updatedAt: entry.pet.updatedAt,
+              }))
+          ),
       onStatus: (status, peers) =>
         usePetStore.getState().setLanStatus(status, peers),
     });
