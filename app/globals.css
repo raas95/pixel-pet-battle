@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+:root {
+  --bg-cream: #faf6eb;
+  --ink: #1e1b2e;
+  --card-bg: #ffffff;
+  --accent-indigo: #5b6ee1;
+  --accent-amber: #fbbf24;
+  --accent-mint: #34d399;
+  --accent-rose: #fb7185;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-cream);
+  background-image: radial-gradient(#d6d0c0 1px, transparent 1px);
+  background-size: 16px 16px;
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+  min-height: 100vh;
+}
+
+.font-pixel {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  letter-spacing: 0.02em;
+}
+
+.pixelated {
+  image-rendering: -moz-crisp-edges;
+  image-rendering: -webkit-crisp-edges;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.pixel-card {
+  background-color: var(--card-bg);
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  border-radius: 10px;
+}
+
+.pixel-btn {
+  border: 3px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  border-radius: 8px;
+  transition: transform 80ms ease, box-shadow 80ms ease, background-color 120ms ease;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pixel-btn:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.pixel-btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.pixel-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@keyframes petIdle {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1) scaleX(1);
+  }
+  50% {
+    transform: translateY(-5px) scaleY(1.03) scaleX(0.98);
+  }
+}
+
+@keyframes petHappy {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  25% {
+    transform: translateY(-14px) scale(1.05, 0.96);
+  }
+  50% {
+    transform: translateY(0) scale(0.96, 1.04);
+  }
+  75% {
+    transform: translateY(-10px) scale(1.03);
+  }
+}
+
+@keyframes petPlaying {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-14px) rotate(-7deg);
+  }
+  50% {
+    transform: translateY(0) rotate(0deg);
+  }
+  75% {
+    transform: translateY(-14px) rotate(7deg);
+  }
+}
+
+@keyframes petEating {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  30% {
+    transform: translateY(-4px) scale(1.08, 0.94);
+  }
+  60% {
+    transform: translateY(2px) scale(0.95, 1.06);
+  }
+}
+
+@keyframes petSleeping {
+  0%,
+  100% {
+    transform: translateY(4px) scaleY(0.94);
+    filter: brightness(0.88);
+  }
+  50% {
+    transform: translateY(6px) scaleY(0.9);
+    filter: brightness(0.8);
+  }
+}
+
+@keyframes petSad {
+  0%,
+  100% {
+    transform: translateY(6px) scaleY(0.92);
+    filter: saturate(0.75) brightness(0.9);
+  }
+  50% {
+    transform: translateY(9px) scaleY(0.89);
+    filter: saturate(0.65) brightness(0.84);
+  }
+}
+
+.animate-pet-idle {
+  animation: petIdle 1.4s ease-in-out infinite;
+}
+
+.animate-pet-happy {
+  animation: petHappy 0.7s ease-in-out infinite;
+}
+
+.animate-pet-playing {
+  animation: petPlaying 0.65s ease-in-out infinite;
+}
+
+.animate-pet-eating {
+  animation: petEating 0.55s ease-in-out infinite;
+}
+
+.animate-pet-sleeping {
+  animation: petSleeping 1.8s ease-in-out infinite;
+}
+
+.animate-pet-sad {
+  animation: petSad 1.5s ease-in-out infinite;
+}
+

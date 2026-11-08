@@ -1,0 +1,359 @@
+project:
+  name: pixel-virtual-pet
+  generated: 2026-11-08
+  total_files: 30
+
+files:
+  lib/pet.ts:
+    role: Mendefinisikan model data monster, konstanta batasan status 0-100, sprite default 32x32, serta fungsi murni perawatan dan time decay.
+    exports: [PET_DATA_VERSION, GRID_SIZE, STAT_MIN, STAT_MAX, MAX_OFFLINE_MS, PetData, PetReaction, CareActionResult, MiniGameResult, clampStat, createEmptyPixels, clonePixels, isValidHexColor, normalizePixels, countPaintedPixels, hasPaintedPixels, createDefaultPixels, sanitizePetName, createDefaultPet, applyTimeDecay, feedPet, playWithPet, sleepPet, applyMiniGameReward, getPetMood, getHungerLabel, getHappinessLabel, getEnergyLabel]
+    depends_on: []
+    key_functions:
+      - name: clampStat
+        does: Membatasi nilai status secara ketat pada rentang 0 hingga 100.
+      - name: applyTimeDecay
+        does: Mengurangi lapar, bahagia, dan energi berdasarkan selisih waktu dengan batas maksimal 2 jam offline.
+      - name: feedPet
+        does: Menambah status kenyang (+25) dan bahagia (+5) pada monster.
+      - name: playWithPet
+        does: Menambah kebahagiaan (+20) dan mengurangi energi (-15) jika energi minimal 10.
+      - name: sleepPet
+        does: Memulihkan status energi monster (+35) hingga batas maksimal 100.
+      - name: applyMiniGameReward
+        does: Memperbarui highScore dan menambah status monster berdasarkan hasil mini-game.
+
+  lib/storage.ts:
+    role: Menangani serialisasi, persistensi, migrasi versi, dan pembacaan data monster pada localStorage browser.
+    exports: [PET_STORAGE_KEY, migratePetData, savePetData, loadPetData, resetPetData]
+    depends_on: [lib/pet.ts]
+    key_functions:
+      - name: loadPetData
+        does: Membaca data monster dari localStorage, memigrasi versi, menerapkan time decay, atau membuat data default jika kosong/korup.
+      - name: savePetData
+        does: Menyimpan objek PetData ke localStorage dalam format JSON.
+      - name: resetPetData
+        does: Menimpa penyimpanan dengan data monster default dan menyimpannya.
+    notes: Mengabaikan pemanggilan jika berjalan di sisi server (SSR).
+
+  lib/device.ts:
+    role: Menghasilkan dan menyimpan identifier unik per browser untuk penghitungan peer pada server sinkronisasi.
+    exports: [getDeviceId]
+    depends_on: []
+    notes: Identifier disimpan di localStorage; fallback string acak jika crypto.randomUUID tidak tersedia.
+
+  lib/lanSync.ts:
+    role: Client sync manager yang menyinkronkan data monster antar device via polling ringan ke route /api/pet.
+    exports: [LanSyncStatus, LAN_SYNC_POLL_MS, queueLanPush, startLanSync, stopLanSync]
+    depends_on: [lib/pet.ts, lib/device.ts]
+    key_functions:
+      - name: startLanSync
+        does: Menjalankan loop polling tiap 3 detik; menarik pet dari server jika updatedAt server lebih baru, atau mendorong pet lokal jika lebih baru, melalui callback agar tidak ada circular import dengan store.
+      - name: queueLanPush
+        does: Mengantre push pet lokal dengan debounce 800 ms setelah aksi perubahan data.
+    notes: Konflik versi diselesaikan last-write-wins berbasis updatedAt; status koneksi dan jumlah peer diteruskan ke store.
+
+  app/api/pet/route.ts:
+    role: Route handler Next.js sebagai server sinkronisasi LAN; menyimpan data monster bersama dan menghitung device yang terhubung.
+    exports: [GET, POST]
+    depends_on: [lib/pet.ts]
+    key_functions:
+      - name: GET
+        does: Mengembalikan pet bersama beserta jumlah peer, sekaligus mencatat heartbeat deviceId dari query string.
+      - name: POST
+        does: Memvalidasi body via migratePetData dan menyimpan pet dengan aturan last-write-wins berbasis updatedAt, lalu menulis persistensi ke file .data/pet-sync.json.
+    notes: State disimpan di globalThis agar tahan HMR dev; peer dianggap aktif bila heartbeat dalam 10 detik terakhir.
+
+  lib/letters.ts:
+    role: Mengelola daftar huruf A-Z, konfigurasi ronde mini-game, tingkat kesulitan, dan utilitas pengacakan opsi huruf.
+    exports: [LETTERS, Letter, TOTAL_ROUNDS, MAX_LIVES, POINTS_PER_CORRECT, GameDifficulty, DifficultySettings, DIFFICULTY_CONFIG, LetterRound, getLetterAudioPath, shuffleArray, generateRound, isValidLetterOption]
+    depends_on: []
+    key_functions:
+      - name: generateRound
+        does: Menghasilkan 1 huruf target dan 3 huruf pengecoh unik serta mengacak posisi urutannya.
+      - name: isValidLetterOption
+        does: Memeriksa apakah input huruf termasuk dalam 4 pilihan huruf yang valid pada ronde aktif.
+
+  store/usePetStore.ts:
+    role: Store Zustand global yang mengatur sinkronisasi state monster dan status mini-game antara React dan Phaser, serta status sinkronisasi LAN.
+    exports: [MiniGameState, MiniGameFeedback, MiniGameRewardSummary, LanSyncStatus, usePetStore]
+    depends_on: [lib/letters.ts, lib/pet.ts, lib/storage.ts, lib/lanSync.ts]
+    key_functions:
+      - name: hydrate
+        does: Memuat data monster dari localStorage ke dalam store saat komponen klien pertama kali dimuat.
+      - name: updatePixels
+        does: Memvalidasi dan menyimpan matriks pixel monster baru jika tidak kosong.
+      - name: completeMiniGame
+        does: Menerapkan hadiah mini-game ke status monster, menyimpan ke localStorage, dan mengubah gameState ke selesai.
+      - name: applyRemotePet
+        does: Menerima pet dari device lain, menerapkan time decay lokal, menyimpan ke localStorage, dan memperbarui store tanpa memicu push balik.
+      - name: setLanStatus
+        does: Mencatat status koneksi sinkronisasi (connecting/online/offline) dan jumlah peer aktif.
+    notes: Bertindak sebagai single source of truth untuk antarmuka React dan scene Phaser; setiap aksi lokal yang mengubah pet memanggil queueLanPush.
+
+  game/soundFx.ts:
+    role: Penghasil efek suara retro chiptune 8-bit sintetis secara programatis menggunakan Web Audio API browser.
+    exports: [playClickSfx, playCorrectSfx, playWrongSfx, playWinSfx, playLoseSfx]
+    depends_on: []
+    key_functions:
+      - name: playTone
+        does: Membuat osilator WebAudio dengan amplop modulasi gain untuk menghasilkan nada sintetis.
+      - name: playCorrectSfx
+        does: Memutar melodi arpeggio nada naik untuk menandai jawaban benar.
+      - name: playWrongSfx
+        does: Memutar nada rendah menurun untuk menandai jawaban salah atau jatuh.
+    notes: Menggunakan instance AudioContext bersama yang dibuka saat ada interaksi pengguna.
+
+  game/petAnimations.ts:
+    role: Mengonversi matriks pixel monster menjadi tekstur Phaser nearest-neighbor dan menjalankan tween animasi programatis.
+    exports: [PET_TEXTURE_KEY, PET_DISPLAY_SCALE, buildPetTexture, playIdleAnimation, playListeningAnimation, playRunAnimation, playFallAnimation, playWinAnimation, playSadAnimation]
+    depends_on: [lib/pet.ts]
+    key_functions:
+      - name: buildPetTexture
+        does: Menggambar matriks 32x32 ke canvas dan mendaftarkannya sebagai tekstur Phaser berfilter nearest-neighbor.
+      - name: playRunAnimation
+        does: Menggerakkan sprite monster maju miring berulang dengan partikel debu saat jawaban benar.
+      - name: playFallAnimation
+        does: Menjalankan animasi rotasi jatuh, guncangan kamera, dan efek benturan saat jawaban salah.
+
+  game/scenes/MiniGameScene.ts:
+    role: Scene utama Phaser yang mengelola state machine mini-game suara, pemutaran audio huruf, input keyboard, dan feedback visual.
+    exports: [SCENE_KEY, MiniGameScene]
+    depends_on: [lib/letters.ts, store/usePetStore.ts, game/petAnimations.ts, game/soundFx.ts]
+    key_functions:
+      - name: preload
+        does: Memuat seluruh file audio huruf lokal A-Z ke dalam cache Phaser.
+      - name: beginRound
+        does: Menyiapkan ronde baru, memutar suara instruksi target huruf, dan mengubah state ke MEMUTAR_SUARA.
+      - name: handleAnswer
+        does: Memvalidasi input jawaban pemain, memicu animasi lari/jatuh, memperbarui skor/nyawa, dan memblokir input ganda.
+      - name: cleanupAudioAndTimers
+        does: Menghentikan audio aktif dan membatalkan seluruh timer saat scene ditutup atau di-reset.
+    notes: Berkomunikasi dua arah dengan React melalui event emitter game Phaser dan Zustand store.
+
+  game/createGame.ts:
+    role: Factory pembantu untuk menginisialisasi instance Phaser Game di elemen DOM container dengan konfigurasi pixelArt.
+    exports: [MiniGameController, createGame]
+    depends_on: [game/scenes/MiniGameScene.ts]
+    key_functions:
+      - name: createGame
+        does: Menginstansiasi Phaser.Game dengan resolusi kanvas 640x320 dan mengembalikan kontroller event.
+
+  components/StoreHydrator.tsx:
+    role: Komponen utilitas klien untuk memicu hidrasi data dari localStorage, sinkronisasi berkala time decay, dan menjalankan loop sinkronisasi LAN.
+    exports: [StoreHydrator]
+    depends_on: [store/usePetStore.ts, lib/lanSync.ts]
+    notes: Memasang interval 30 detik, event listener visibilitychange, dan startLanSync yang dihentikan bersih saat unmount.
+
+  components/NavBar.tsx:
+    role: Bilah navigasi atas yang menampilkan nama monster aktif, indikator status sinkronisasi LAN (jumlah perangkat terhubung), dan link ke halaman Beranda, Rawat, Gambar, dan Mini-Game.
+    exports: [NavBar]
+    depends_on: [store/usePetStore.ts, components/PetSprite.tsx]
+
+  components/PetSprite.tsx:
+    role: Komponen React untuk merender sprite pixel 32x32 secara tajam menggunakan HTML5 Canvas dan animasi CSS.
+    exports: [PetSprite]
+    depends_on: [lib/pet.ts]
+    notes: Mendukung mode animasi CSS bernapas, makan, bermain, tidur, senang, dan sedih.
+
+  components/PetStatus.tsx:
+    role: Menampilkan kartu indikator status Lapar, Bahagia, Energi (0-100), label kondisi monster, dan skor rekor tertinggi.
+    exports: [PetStatus]
+    depends_on: [lib/pet.ts]
+
+  components/PetActions.tsx:
+    role: Menampilkan tombol interaksi perawatan monster (Beri Makan, Ajak Bermain, Tidur/Istirahat) beserta pesan umpan balik.
+    exports: [PetActions]
+    depends_on: [store/usePetStore.ts]
+
+  components/PixelEditor.tsx:
+    role: Editor pixel 32x32 interaktif dengan pensil, penghapus, flood fill, pengambil warna, undo/redo, dan pratinjau monster.
+    exports: [PixelEditor]
+    depends_on: [lib/pet.ts, store/usePetStore.ts, components/PetSprite.tsx]
+    key_functions:
+      - name: floodFill
+        does: Menjalankan algoritma BFS untuk mengisi bidang warna contiguous pada kanvas 32x32.
+      - name: handleSave
+        does: Memvalidasi kanvas tidak kosong sebelum menyimpan matriks pixel monster ke store.
+    notes: Menggunakan pointer capture dan interpolasi garis Bresenham agar goresan sentuh/mouse mulus tanpa putus.
+
+  components/GameCanvas.tsx:
+    role: Pembungkus React untuk memuat kanvas Phaser secara dinamis di sisi klien dan mengelola siklus hidup instance Phaser.
+    exports: [GameCanvas]
+    depends_on: [game/createGame.ts, store/usePetStore.ts]
+    notes: Memanggil controller.destroy() secara bersih saat komponen unmount untuk mencegah memory leak.
+
+  components/LetterButtons.tsx:
+    role: Menampilkan 4 tombol pilihan huruf besar yang responsif terhadap klik layar sentuh dan keyboard fisik.
+    exports: [LetterButtons]
+    depends_on: [store/usePetStore.ts]
+    notes: Tombol dinonaktifkan otomatis saat status permainan bukan MENUNGGU_JAWABAN.
+
+  app/layout.tsx:
+    role: Layout utama aplikasi Next.js yang memuat metadata, stylesheet global, StoreHydrator, dan NavBar.
+    exports: [metadata, default]
+    depends_on: [components/NavBar.tsx, components/StoreHydrator.tsx]
+
+  app/page.tsx:
+    role: Halaman beranda yang menampilkan hero monster aktif, ringkasan status, panduan alur game, dan tombol reset data lokal.
+    exports: [default]
+    depends_on: [components/PetSprite.tsx, components/PetStatus.tsx, lib/pet.ts, store/usePetStore.ts]
+
+  app/pet/page.tsx:
+    role: Halaman ruang perawatan monster untuk mengubah nama monster, melihat panggung animasi reaksi, status, dan aksi perawatan.
+    exports: [default]
+    depends_on: [components/PetActions.tsx, components/PetSprite.tsx, components/PetStatus.tsx, lib/pet.ts, store/usePetStore.ts]
+
+  app/pet/draw/page.tsx:
+    role: Halaman rute editor pixel monster yang merender komponen PixelEditor dan tautan kembali ke perawatan.
+    exports: [default]
+    depends_on: [components/PixelEditor.tsx]
+
+  app/play/page.tsx:
+    role: Halaman arena mini-game suara yang memuat HUD ronde/skor/nyawa, GameCanvas dinamis, opsi aksesibilitas, dan LetterButtons.
+    exports: [default]
+    depends_on: [components/LetterButtons.tsx, game/createGame.ts, lib/letters.ts, store/usePetStore.ts, components/GameCanvas.tsx]
+
+  tests/pet.test.ts:
+    role: Pengujian unit untuk logika model data pet, pembatasan nilai status 0-100, aksi perawatan, dan batas offline time decay.
+    exports: []
+    depends_on: [lib/pet.ts]
+
+  tests/letters.test.ts:
+    role: Pengujian unit untuk generator ronde huruf acak, validasi 4 pilihan unik, dan kemunculan tepat satu target.
+    exports: []
+    depends_on: [lib/letters.ts]
+
+  tests/storage.test.ts:
+    role: Pengujian unit untuk penyimpanan dan pembacaan localStorage, toleransi JSON rusak, serta validasi kanvas kosong.
+    exports: []
+    depends_on: [lib/pet.ts, lib/storage.ts, store/usePetStore.ts]
+
+  tests/syncRoute.test.ts:
+    role: Pengujian unit route /api/pet; penyimpanan pet, aturan last-write-wins, normalisasi status, validasi body, dan penghitungan peer.
+    exports: []
+    depends_on: [app/api/pet/route.ts, lib/pet.ts]
+
+  tests/lanSync.test.ts:
+    role: Pengujian unit client sync manager; keputusan pull/push berdasarkan updatedAt, debounce push, dan penanganan status offline.
+    exports: []
+    depends_on: [lib/lanSync.ts, lib/pet.ts]
+
+edges:
+  - from: lib/storage.ts
+    to: lib/pet.ts
+    via: import fungsi createDefaultPet, applyTimeDecay, clampStat, normalizePixels, sanitizePetName
+  - from: store/usePetStore.ts
+    to: lib/pet.ts
+    via: import model PetData, feedPet, playWithPet, sleepPet, applyMiniGameReward
+  - from: store/usePetStore.ts
+    to: lib/storage.ts
+    via: import loadPetData, savePetData, resetPetData
+  - from: store/usePetStore.ts
+    to: lib/lanSync.ts
+    via: import queueLanPush untuk push perubahan pet lokal ke server sinkronisasi
+  - from: store/usePetStore.ts
+    to: lib/letters.ts
+    via: import GameDifficulty, MAX_LIVES
+  - from: game/petAnimations.ts
+    to: lib/pet.ts
+    via: import GRID_SIZE
+  - from: game/scenes/MiniGameScene.ts
+    to: lib/letters.ts
+    via: import LETTERS, generateRound, getLetterAudioPath, isValidLetterOption
+  - from: game/scenes/MiniGameScene.ts
+    to: store/usePetStore.ts
+    via: import usePetStore
+  - from: game/scenes/MiniGameScene.ts
+    to: game/petAnimations.ts
+    via: import buildPetTexture, playIdleAnimation, playRunAnimation, playFallAnimation
+  - from: game/scenes/MiniGameScene.ts
+    to: game/soundFx.ts
+    via: import fungsi audio SFX
+  - from: game/createGame.ts
+    to: game/scenes/MiniGameScene.ts
+    via: import MiniGameScene
+  - from: components/StoreHydrator.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore
+  - from: lib/lanSync.ts
+    to: lib/pet.ts
+    via: import tipe PetData
+  - from: lib/lanSync.ts
+    to: lib/device.ts
+    via: import getDeviceId untuk heartbeat dan identitas peer
+  - from: app/api/pet/route.ts
+    to: lib/pet.ts
+    via: import PetData dan migratePetData untuk validasi body
+  - from: components/StoreHydrator.tsx
+    to: lib/lanSync.ts
+    via: import startLanSync dengan callback getLocalPet, onRemotePet, dan onStatus
+  - from: components/NavBar.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore
+  - from: components/NavBar.tsx
+    to: components/PetSprite.tsx
+    via: import PetSprite
+  - from: components/PetSprite.tsx
+    to: lib/pet.ts
+    via: import GRID_SIZE, PetReaction
+  - from: components/PetStatus.tsx
+    to: lib/pet.ts
+    via: import getHungerLabel, getHappinessLabel, getEnergyLabel, getPetMood
+  - from: components/PetActions.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore
+  - from: components/PixelEditor.tsx
+    to: lib/pet.ts
+    via: import fungsi manipulasi grid pixel
+  - from: components/PixelEditor.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore
+  - from: components/PixelEditor.tsx
+    to: components/PetSprite.tsx
+    via: import PetSprite
+  - from: components/GameCanvas.tsx
+    to: game/createGame.ts
+    via: import dinamis createGame
+  - from: components/GameCanvas.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore
+  - from: components/LetterButtons.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore
+  - from: app/layout.tsx
+    to: components/NavBar.tsx
+    via: import NavBar
+  - from: app/layout.tsx
+    to: components/StoreHydrator.tsx
+    via: import StoreHydrator
+  - from: app/page.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore
+  - from: app/page.tsx
+    to: components/PetSprite.tsx
+    via: import PetSprite
+  - from: app/page.tsx
+    to: components/PetStatus.tsx
+    via: import PetStatus
+  - from: app/pet/page.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore
+  - from: app/pet/page.tsx
+    to: components/PetActions.tsx
+    via: import PetActions
+  - from: app/pet/page.tsx
+    to: components/PetStatus.tsx
+    via: import PetStatus
+  - from: app/pet/draw/page.tsx
+    to: components/PixelEditor.tsx
+    via: import PixelEditor
+  - from: app/play/page.tsx
+    to: components/GameCanvas.tsx
+    via: import dinamis GameCanvas
+  - from: app/play/page.tsx
+    to: components/LetterButtons.tsx
+    via: import LetterButtons
+  - from: app/play/page.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore
+
