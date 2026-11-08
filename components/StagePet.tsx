@@ -15,10 +15,10 @@ type StagePos = {
 const MOVE_DURATION_MS = 2_600;
 const MIN_X = 10;
 const MAX_X = 88;
-// Stage ±280px tinggi dan sprite utama ±180px, sehingga rentang vertikal
+// Stage ±280px tinggi dan sprite ±90px, sehingga rentang vertikal
 // perjalanan sengaja dibatasi agar sprite tidak terpotong tepi panggung.
 const MIN_Y = 4;
-const MAX_Y = 32;
+const MAX_Y = 50;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -156,18 +156,18 @@ export function StagePet() {
           {showReaction ? (
             <PetSprite
               pixels={pet.pixels}
-              size={160}
+              size={60}
               reaction={reaction}
               mood={mood}
               animated
             />
           ) : (
             <div className={animClass}>
-              <PetSprite pixels={pet.pixels} size={160} animated={false} />
+              <PetSprite pixels={pet.pixels} size={60} animated={false} />
             </div>
           )}
         </div>
-        <div className="-mt-1 h-4 w-28 rounded-full bg-[#1e1b2e]/20" />
+        <div className="-mt-0.5 h-1.5 w-10 rounded-full bg-[#1e1b2e]/20" />
       </div>
     </div>
   );
