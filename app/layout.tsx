@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { NavBar } from "@/components/NavBar";
 import { StoreHydrator } from "@/components/StoreHydrator";
+import { DuelManager } from "@/components/DuelManager";
 
 export const metadata: Metadata = {
   title: "PixelPet — Virtual Pet & Mini-Game Suara",
@@ -18,6 +19,7 @@ export default function RootLayout({
     <html lang="id">
       <body className="min-h-screen antialiased">
         <StoreHydrator />
+        <DuelManager />
         <NavBar />
         <main className="mx-auto max-w-4xl px-3 py-5 sm:px-6 sm:py-8">
           {children}

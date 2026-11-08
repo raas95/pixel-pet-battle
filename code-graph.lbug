@@ -1,7 +1,7 @@
 project:
   name: pixel-virtual-pet
   generated: 2026-11-08
-  total_files: 33
+  total_files: 40
 
 files:
   lib/pet.ts:
@@ -52,6 +52,22 @@ files:
         does: Mengantre push pet lokal dengan debounce 800 ms setelah aksi perubahan data.
     notes: Pet device sendiri tidak pernah ditarik dari server (localStorage tetap sumber utama); status koneksi dan jumlah peer diteruskan ke store.
 
+  lib/duel.ts:
+    role: Konstanta dan tipe data bersama untuk duel antar device (dipakai route server, client, dan test).
+    exports: [DUEL_MAX_HP, DUEL_DAMAGE, DUEL_CHARGE_NEEDED, DUEL_ROUND_MS, DUEL_PENDING_EXPIRY_MS, DUEL_FINISHED_RETENTION_MS, DuelPlayer, DuelEvent, Duel]
+    depends_on: []
+
+  lib/duelSync.ts:
+    role: Client API dan polling state duel antar device ke route /api/duel.
+    exports: [DUEL_POLL_MS, DuelPlayerView, DuelEventView, DuelView, DuelSnapshot, challengePet, respondDuel, submitDuelAnswer, startDuelSync]
+    depends_on: [lib/device.ts]
+    key_functions:
+      - name: startDuelSync
+        does: Polling tiap 1,5 detik; hanya memanggil onSnapshot saat JSON respons berubah agar tidak memicu render berulang.
+      - name: challengePet
+        does: Mengirim tantangan duel beserta nama monster pengirim dan target.
+    notes: Hanya memforward data; seluruh state duel (incoming, duel aktif, hasil) ditampung di store/useDuelStore.
+
   app/api/pet/route.ts:
     role: Route handler Next.js sebagai server sinkronisasi LAN; menyimpan pet milik tiap device terpisah dan mendaftarkan device yang sedang online agar bisa saling terlihat.
     exports: [GET, POST]
@@ -63,6 +79,19 @@ files:
         does: Memvalidasi body via migratePetData dan menyimpan pet ke registri milik deviceId pengirim dengan aturan last-write-wins per device berbasis updatedAt, lalu menulis persistensi ke file .data/pet-sync.json.
     notes: State disimpan di globalThis agar tahan HMR dev; peer dianggap aktif bila heartbeat dalam 10 detik terakhir.
 
+  app/api/duel/route.ts:
+    role: Route handler Next.js sebagai server duel antar device; mengelola tantangan, respons terima/tolak, ronde pertanyaan huruf, progres daya serangan (streak), dan resolusi projektil.
+    exports: [GET, POST]
+    depends_on: [lib/letters.ts, lib/duel.ts]
+    key_functions:
+      - name: resolveRound
+        does: Menutup ronde saat kedua pemain menjawab atau timeout; jawaban benar menambah streak (penuh = 3 -> jawaban benar berikutnya meluncurkan projektil dan streak reset ke 0), salah mengurangi streak satu; dua projektil di ronde sama bertabrakan (collision, tanpa damage), satu projektil mengenai lawan (-20 HP) hingga HP 0 menandai pemenang.
+      - name: POST action challenge
+        does: Membuat duel pending; menolak bila salah satu device sudah punya duel pending/active.
+      - name: POST action respond
+        does: Target menerima (duel jadi active, ronde 1 dengan perintah huruf acak + batas waktu) atau menolak (status declined).
+    notes: State duel disimpan di globalThis (tahan HMR, tidak dipersisten); duel pending kedaluwarsa 30 detik dan hasil akhir disimpan 60 detik; resolusi ronde bersifat lazy saat GET/POST.
+
   lib/letters.ts:
     role: Mengelola daftar huruf A-Z, konfigurasi ronde mini-game, tingkat kesulitan, dan utilitas pengacakan opsi huruf.
     exports: [LETTERS, Letter, TOTAL_ROUNDS, MAX_LIVES, POINTS_PER_CORRECT, GameDifficulty, DifficultySettings, DIFFICULTY_CONFIG, LetterRound, getLetterAudioPath, shuffleArray, generateRound, isValidLetterOption]
@@ -72,6 +101,15 @@ files:
         does: Menghasilkan 1 huruf target dan 3 huruf pengecoh unik serta mengacak posisi urutannya.
       - name: isValidLetterOption
         does: Memeriksa apakah input huruf termasuk dalam 4 pilihan huruf yang valid pada ronde aktif.
+
+  store/useDuelStore.ts:
+    role: Store Zustand untuk state duel antar device; tantangan masuk, duel aktif/hasil, dan pemberitahuan penolakan.
+    exports: [DuelChallenge, DuelDeclinedNotice, useDuelStore]
+    depends_on: [lib/duelSync.ts]
+    key_functions:
+      - name: applySnapshot
+        does: Menerjemahkan snapshot polling menjadi state store; status declined hanya diberitahukan ke penantang (players[0]).
+    notes: Duel yang hilang dari server (kedaluwarsa) dibersihkan otomatis.
 
   store/usePetStore.ts:
     role: Store Zustand global yang mengatur sinkronisasi state monster dan status mini-game antara React dan Phaser, serta status sinkronisasi LAN dan daftar monster tetangga.
@@ -177,15 +215,15 @@ files:
     notes: Menggunakan pointer capture dan interpolasi garis Bresenham agar goresan sentuh/mouse mulus tanpa putus.
 
   components/NeighborPets.tsx:
-    role: Panel daftar monster milik device lain yang sedang online di jaringan yang sama, dengan sprite, nama, dan label kondisi tiap monster.
+    role: Panel daftar monster milik device lain yang sedang online di jaringan yang sama, dengan sprite, nama, kondisi, dan tombol untuk mengajak duel tiap monster.
     exports: [NeighborPets]
-    depends_on: [store/usePetStore.ts, components/PetSprite.tsx, lib/pet.ts]
+    depends_on: [store/usePetStore.ts, components/PetSprite.tsx, lib/duelSync.ts, lib/pet.ts]
 
   components/NeighborWanderers.tsx:
-    role: Renderer monster tetangga yang berkeliaran di panggung ruang perawatan; setiap monster berpindah posisi acak dengan transisi halus, animasi jalan, arah menghadap, dan label nama.
+    role: Renderer monster tetangga yang berkeliaran di panggung ruang perawatan; setiap monster berpindah posisi acak dengan transisi halus, animasi jalan, arah menghadap, label nama, dan bisa diklik untuk mengajak duel.
     exports: [NeighborWanderers]
-    depends_on: [store/usePetStore.ts, components/PetSprite.tsx]
-    notes: Dibatasi maksimal 6 pengembara; animasi jalan memakai keyframes petWalk di globals.css.
+    depends_on: [store/usePetStore.ts, components/PetSprite.tsx, lib/duelSync.ts]
+    notes: Dibatasi maksimal 6 pengembara; klik membuka menu kecil "Ajak duel?" di atas panggung dan mengirim tantangan via challengePet.
 
   components/StagePet.tsx:
     role: Monster utama di panggung ruang perawatan; berjalan-jalan sendiri ke posisi acak, bisa di-drag and drop oleh pengguna ke mana saja di area panggung, dan tetap menampilkan animasi reaksi aksi perawatan saat sedang aktif.
@@ -208,10 +246,24 @@ files:
     depends_on: [store/usePetStore.ts]
     notes: Tombol dinonaktifkan otomatis saat status permainan bukan MENUNGGU_JAWABAN.
 
+  components/DuelManager.tsx:
+    role: Komponen global di layout untuk sinkronisasi duel; polling state, popup tantangan masuk (terima/tolak), popup penolakan, dan navigasi otomatis ke halaman duel saat duel aktif.
+    exports: [DuelManager]
+    depends_on: [lib/device.ts, lib/duelSync.ts, store/useDuelStore.ts]
+
+  app/duel/page.tsx:
+    role: Arena duel dua pemain; menampilkan HP dan daya serangan kedua monster, instruksi huruf bersuara, pilihan jawaban layar + keyboard, hitung mundur ronde, animasi projektil (terbang, tabrakan, kena), dan layar hasil akhir.
+    exports: [default]
+    depends_on: [components/PetSprite.tsx, lib/device.ts, lib/duelSync.ts, lib/letters.ts, lib/pet.ts, store/useDuelStore.ts, store/usePetStore.ts]
+    key_functions:
+      - name: submit
+        does: Mengirim jawaban huruf sekali per ronde via submitDuelAnswer, dengan pengaman dobel dari state answered server.
+    notes: Animasi projektil memakai keyframes duelFlyRight/duelFlyLeft/duelFlyCenterR/duelFlyCenterL/duelPop di globals.css; sprite lawan diambil dari daftar lanNeighbors berdasarkan deviceId.
+
   app/layout.tsx:
-    role: Layout utama aplikasi Next.js yang memuat metadata, stylesheet global, StoreHydrator, dan NavBar.
+    role: Layout utama aplikasi Next.js yang memuat metadata, stylesheet global, StoreHydrator, DuelManager, dan NavBar.
     exports: [metadata, default]
-    depends_on: [components/NavBar.tsx, components/StoreHydrator.tsx]
+    depends_on: [components/NavBar.tsx, components/StoreHydrator.tsx, components/DuelManager.tsx]
 
   app/page.tsx:
     role: Halaman beranda yang menampilkan hero monster aktif, ringkasan status, panduan alur game, daftar monster tetangga yang online, dan tombol reset data lokal.
@@ -258,7 +310,18 @@ files:
     exports: []
     depends_on: [lib/lanSync.ts, lib/pet.ts]
 
+  tests/duelRoute.test.ts:
+    role: Pengujian unit route /api/duel; alur tantangan/respons, aturan streak (benar +1, salah -1, ke-4 meluncurkan projektil), tabrakan projektil, kemenangan, otorisasi pemain, dan timeout ronde.
+    exports: []
+    depends_on: [app/api/duel/route.ts]
+
 edges:
+  - from: app/api/duel/route.ts
+    to: lib/letters.ts
+    via: import LETTERS untuk perintah huruf acak
+  - from: app/api/duel/route.ts
+    to: lib/duel.ts
+    via: import konstanta duel dan tipe Duel/DuelEvent
   - from: lib/storage.ts
     to: lib/pet.ts
     via: import fungsi createDefaultPet, applyTimeDecay, clampStat, normalizePixels, sanitizePetName
@@ -352,9 +415,42 @@ edges:
   - from: app/layout.tsx
     to: components/NavBar.tsx
     via: import NavBar
+  - from: lib/duelSync.ts
+    to: lib/device.ts
+    via: import getDeviceId untuk identitas pemain duel
+  - from: store/useDuelStore.ts
+    to: lib/duelSync.ts
+    via: import tipe DuelSnapshot dan DuelView
+  - from: components/DuelManager.tsx
+    to: lib/duelSync.ts
+    via: import startDuelSync dan respondDuel
+  - from: components/DuelManager.tsx
+    to: store/useDuelStore.ts
+    via: import useDuelStore
+  - from: components/NeighborWanderers.tsx
+    to: lib/duelSync.ts
+    via: import challengePet saat monster tetangga diklik
+  - from: components/NeighborPets.tsx
+    to: lib/duelSync.ts
+    via: import challengePet untuk tombol Duel
+  - from: app/duel/page.tsx
+    to: lib/duelSync.ts
+    via: import submitDuelAnswer dan DUEL_POLL_MS
+  - from: app/duel/page.tsx
+    to: store/useDuelStore.ts
+    via: import useDuelStore untuk state duel
+  - from: app/duel/page.tsx
+    to: store/usePetStore.ts
+    via: import usePetStore untuk sprite sendiri dan daftar neighbor
+  - from: app/duel/page.tsx
+    to: lib/letters.ts
+    via: import getLetterAudioPath dan LETTERS
   - from: app/layout.tsx
     to: components/StoreHydrator.tsx
     via: import StoreHydrator
+  - from: app/layout.tsx
+    to: components/DuelManager.tsx
+    via: import DuelManager
   - from: app/page.tsx
     to: store/usePetStore.ts
     via: import usePetStore

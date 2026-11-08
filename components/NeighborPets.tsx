@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { usePetStore } from "@/store/usePetStore";
+import { challengePet } from "@/lib/duelSync";
 import {
   getHappinessLabel,
   getHungerLabel,
@@ -11,6 +13,18 @@ import { PetSprite } from "./PetSprite";
 export function NeighborPets() {
   const neighbors = usePetStore((state) => state.lanNeighbors);
   const lanStatus = usePetStore((state) => state.lanStatus);
+  const myName = usePetStore((state) => state.pet.name);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const handleChallenge = async (deviceId: string, name: string) => {
+    const result = await challengePet({ deviceId, name, myName });
+    setNotice(
+      result.ok
+        ? `⚔️ Tantangan terkirim ke ${name}! Menunggu respons...`
+        : `⚠️ ${result.error ?? "Tantangan gagal dikirim."}`
+    );
+    window.setTimeout(() => setNotice(null), 6_000);
+  };
 
   return (
     <section className="pixel-card p-4 sm:p-6">
@@ -26,6 +40,12 @@ export function NeighborPets() {
               : "LAN off"}
         </span>
       </div>
+
+      {notice && (
+        <p className="font-pixel mb-3 rounded-md border-2 border-[#1e1b2e] bg-[#fef9c3] px-3 py-1.5 text-xs font-bold text-[#1e1b2e]">
+          {notice}
+        </p>
+      )}
 
       {neighbors.length === 0 ? (
         <p className="text-sm font-medium text-slate-600">
@@ -48,7 +68,7 @@ export function NeighborPets() {
                   animated
                 />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="font-pixel truncate text-sm font-extrabold text-[#1e1b2e]">
                   {neighbor.name}
                 </div>
@@ -61,6 +81,15 @@ export function NeighborPets() {
                 <div className="text-xs font-medium text-slate-600">
                   Energi: {getEnergyLabel(neighbor.energy)}
                 </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void handleChallenge(neighbor.deviceId, neighbor.name)
+                  }
+                  className="pixel-btn font-pixel mt-1.5 bg-[#fde047] px-2 py-0.5 text-[11px] font-bold text-[#1e1b2e]"
+                >
+                  ⚔️ Duel
+                </button>
               </div>
             </li>
           ))}
