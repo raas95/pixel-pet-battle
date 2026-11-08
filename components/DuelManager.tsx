@@ -13,7 +13,10 @@ export function DuelManager() {
   const incoming = useDuelStore((state) => state.incoming);
   const duel = useDuelStore((state) => state.duel);
   const declined = useDuelStore((state) => state.declined);
+  const abandoned = useDuelStore((state) => state.abandoned);
+  const firstSyncDone = useDuelStore((state) => state.firstSyncDone);
   const clearDeclined = useDuelStore((state) => state.clearDeclined);
+  const clearAbandoned = useDuelStore((state) => state.clearAbandoned);
 
   useEffect(() => {
     const myDeviceId = getDeviceId();
@@ -22,15 +25,17 @@ export function DuelManager() {
     );
   }, []);
 
-  // Kedua pemain dibawa ke arena duel begitu duel aktif.
+  // URL mengikuti state duel (satu arah). Redirect baru boleh terjadi
+  // setelah snapshot polling pertama selesai, supaya refresh di tengah duel
+  // tidak langsung menendang pengguna ke Beranda.
   useEffect(() => {
+    if (!firstSyncDone) return;
     if (duel?.status === "active" && pathname !== "/duel") {
       router.push("/duel");
-    }
-    if (!duel && pathname === "/duel") {
+    } else if (!duel && pathname === "/duel") {
       router.push("/");
     }
-  }, [duel, pathname, router]);
+  }, [duel, firstSyncDone, pathname, router]);
 
   if (incoming) {
     return (
@@ -78,6 +83,26 @@ export function DuelManager() {
           <button
             type="button"
             onClick={clearDeclined}
+            className="pixel-btn font-pixel bg-[#fde047] px-4 py-2 text-xs font-bold text-[#1e1b2e]"
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (abandoned) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1e1b2e]/50 p-4">
+        <div className="pixel-card w-full max-w-sm space-y-4 bg-white p-5 text-center">
+          <div className="font-pixel text-lg font-extrabold text-[#1e1b2e]">
+            🔌 Duel Terputus
+          </div>
+          <p className="text-sm font-medium text-slate-700">{abandoned.message}</p>
+          <button
+            type="button"
+            onClick={clearAbandoned}
             className="pixel-btn font-pixel bg-[#fde047] px-4 py-2 text-xs font-bold text-[#1e1b2e]"
           >
             OK

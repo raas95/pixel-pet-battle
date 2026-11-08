@@ -1,8 +1,20 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DUEL_DAMAGE, DUEL_MAX_HP, DUEL_ROUND_MS } from "@/lib/duel";
 
 type RouteModule = typeof import("@/app/api/duel/route");
+
+const tempDirs: string[] = [];
+
+afterAll(() => {
+  delete process.env.PET_SYNC_DATA_DIR;
+  for (const dir of tempDirs) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 type PublicDuel = {
   status: string;
@@ -21,6 +33,9 @@ type PublicDuel = {
 
 async function importFreshRoute(): Promise<RouteModule> {
   vi.resetModules();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "duel-test-"));
+  tempDirs.push(dir);
+  process.env.PET_SYNC_DATA_DIR = dir;
   delete (globalThis as unknown as { __duelStore?: unknown }).__duelStore;
   return import("@/app/api/duel/route");
 }
@@ -270,5 +285,35 @@ describe("route duel /api/duel", () => {
     expect(duel.round).toBe(2);
     expect(duel.players.every((p) => p.hp === DUEL_MAX_HP)).toBe(true);
     vi.useRealTimers();
+  });
+});
+
+describe("persistensi duel", () => {
+  it("duel aktif pulih setelah modul dimuat ulang (restart instance)", async () => {
+    let route = await importFreshRoute();
+    const challenge = await route.POST(
+      postJson({
+        action: "challenge",
+        deviceId: "dev-a",
+        name: "Andi",
+        targetDeviceId: "dev-b",
+        targetName: "Budi",
+      })
+    );
+    const { duelId } = await challenge.json();
+    await route.POST(
+      postJson({ action: "respond", deviceId: "dev-b", duelId, accept: true })
+    );
+
+    // Simulasi instance baru: globalThis kosong, modul dimuat ulang.
+    delete (globalThis as unknown as { __duelStore?: unknown }).__duelStore;
+    vi.resetModules();
+    route = await import("@/app/api/duel/route");
+
+    const res = await route.GET(getStatus("dev-a"));
+    const { duel } = await res.json();
+    expect(duel).not.toBeNull();
+    expect(duel.status).toBe("active");
+    expect(duel.command).toMatch(/^[A-Z]$/);
   });
 });

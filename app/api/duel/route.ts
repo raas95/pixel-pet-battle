@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { LETTERS } from "@/lib/letters";
 import {
@@ -13,9 +15,43 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const DATA_DIR = process.env.PET_SYNC_DATA_DIR ?? path.join(process.cwd(), ".data");
+const DUEL_FILE = path.join(DATA_DIR, "duel-sync.json");
+
 type DuelStore = {
   duels: Map<string, Duel>;
 };
+
+function loadPersistedDuels(): Map<string, Duel> {
+  const duels = new Map<string, Duel>();
+  try {
+    const raw = fs.readFileSync(DUEL_FILE, "utf8");
+    const parsed = JSON.parse(raw) as { duels?: Record<string, unknown> };
+    if (!parsed || typeof parsed !== "object" || !parsed.duels) return duels;
+    for (const [id, value] of Object.entries(parsed.duels)) {
+      const duel = value as Duel;
+      if (duel && Array.isArray(duel.players) && duel.players.length === 2) {
+        duels.set(id, duel);
+      }
+    }
+  } catch {
+    // File belum ada atau korup — mulai dari kondisi kosong.
+  }
+  return duels;
+}
+
+/** Best-effort: instance server lain/restart bisa memulihkan duel berjalan. */
+function persistDuels(): void {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(
+      DUEL_FILE,
+      JSON.stringify({ duels: Object.fromEntries(store.duels) })
+    );
+  } catch {
+    // Persistensi bersifat usaha terbaik; state memori tetap jalan.
+  }
+}
 
 /** Sepasang huruf acak yang berbeda untuk kedua pemain. */
 function randomCommandPair(): [string, string] {
@@ -26,8 +62,12 @@ function randomCommandPair(): [string, string] {
 }
 
 // globalThis so dev HMR does not wipe ongoing duels on every edit.
+// State juga dipulihkan dari disk agar instance baru/restart bisa melanjutkan
+// duel yang sedang berjalan.
 const globalRef = globalThis as unknown as { __duelStore?: DuelStore };
-const store: DuelStore = (globalRef.__duelStore ??= { duels: new Map() });
+const store: DuelStore = (globalRef.__duelStore ??= {
+  duels: loadPersistedDuels(),
+});
 
 function prune(now: number): void {
   for (const [id, duel] of store.duels) {
@@ -256,6 +296,7 @@ export async function POST(request: NextRequest) {
       updatedAt: now,
     };
     store.duels.set(duel.id, duel);
+    persistDuels();
     return NextResponse.json({ duelId: duel.id, status: duel.status });
   }
 
@@ -272,6 +313,7 @@ export async function POST(request: NextRequest) {
       duel.commands = randomCommandPair();
       duel.roundEndsAt = now + DUEL_ROUND_MS;
       duel.updatedAt = now;
+      persistDuels();
       return NextResponse.json({
         status: duel.status,
         duel: toPublicDuel(duel, deviceId),
@@ -279,6 +321,7 @@ export async function POST(request: NextRequest) {
     }
     duel.status = "declined";
     duel.updatedAt = now;
+    persistDuels();
     return NextResponse.json({ status: duel.status });
   }
 
@@ -299,6 +342,7 @@ export async function POST(request: NextRequest) {
     }
     player.answer = answer;
     resolveRound(duel, now);
+    persistDuels();
     return NextResponse.json({
       status: duel.status,
       duel: toPublicDuel(duel, deviceId),

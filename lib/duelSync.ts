@@ -82,10 +82,21 @@ export async function submitDuelAnswer(
 /**
  * Memulai polling state duel. Hanya memanggil onSnapshot saat ada perubahan
  * data (JSON berubah), agar store tidak di-render ulang terus-menerus.
+ *
+ * Hysteresis: bila snapshot terakhir yang diteruskan punya duel aktif,
+ * snapshot kosong (duel + incoming null) ditahan dulu sampai
+ * DUEL_MISS_TOLERANCE kali berurutan. Ini mencegah redirect liar ketika
+ * sebuah request mendarat di instance server yang kebetulan tidak menyimpan
+ * state duel (umum di serverless), sambil tetap mengakhiri duel yang
+ * benar-benar hilang.
  */
+export const DUEL_MISS_TOLERANCE = 3;
+
 export function startDuelSync(onSnapshot: (snapshot: DuelSnapshot) => void): () => void {
   let lastJson = "";
   let stopped = false;
+  let lastHadActiveDuel = false;
+  let emptyStreak = 0;
 
   const tick = async () => {
     try {
@@ -95,11 +106,29 @@ export function startDuelSync(onSnapshot: (snapshot: DuelSnapshot) => void): () 
       });
       if (!response.ok) throw new Error(`Duel server merespons ${response.status}`);
       const json = await response.text();
-      if (stopped || json === lastJson) return;
+      if (stopped) return;
+      if (json === lastJson) {
+        // Respons identik dengan state terakhir yang diteruskan: konfirmasi
+        // state baik — reset penghitung snapshot kosong.
+        if (lastHadActiveDuel) emptyStreak = 0;
+        return;
+      }
+
+      const snapshot = JSON.parse(json) as DuelSnapshot;
+      const isEmpty = !snapshot.duel && !snapshot.incoming;
+      if (isEmpty && lastHadActiveDuel) {
+        emptyStreak += 1;
+        if (emptyStreak < DUEL_MISS_TOLERANCE) return;
+      } else {
+        emptyStreak = 0;
+      }
+      lastHadActiveDuel = snapshot.duel?.status === "active";
+
       lastJson = json;
-      onSnapshot(JSON.parse(json) as DuelSnapshot);
+      onSnapshot(snapshot);
     } catch {
-      // Abaikan error jaringan; polling berikutnya mencoba lagi.
+      // Abaikan error jaringan; state lama dipertahankan dan polling
+      // berikutnya mencoba lagi (fetch gagal tidak pernah mengosongkan duel).
     }
   };
 
