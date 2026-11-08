@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PetActions } from "@/components/PetActions";
 import { NeighborPets } from "@/components/NeighborPets";
+import { NeighborWanderers } from "@/components/NeighborWanderers";
 import { PetSprite } from "@/components/PetSprite";
 import { PetStatus } from "@/components/PetStatus";
 import { getPetMood } from "@/lib/pet";
@@ -100,8 +101,9 @@ export default function PetCarePage() {
         </div>
 
         {/* Monster Room Stage */}
-        <div className="relative flex min-h-[240px] flex-col items-center justify-center rounded-xl border-[3px] border-[#1e1b2e] bg-gradient-to-b from-[#dbeafe] via-[#eff6ff] to-[#86efac] p-6">
-          <div className="mb-2 flex items-center justify-center">
+        <div className="relative flex min-h-[240px] flex-col items-center justify-center overflow-hidden rounded-xl border-[3px] border-[#1e1b2e] bg-gradient-to-b from-[#dbeafe] via-[#eff6ff] to-[#86efac] p-6">
+          <NeighborWanderers />
+          <div className="relative z-10 mb-2 flex items-center justify-center">
             <PetSprite
               pixels={pet.pixels}
               size={160}
@@ -112,9 +114,9 @@ export default function PetCarePage() {
           </div>
           <div
             aria-hidden="true"
-            className="-mt-2 h-4 w-28 rounded-full bg-[#1e1b2e]/20"
+            className="relative z-10 -mt-2 h-4 w-28 rounded-full bg-[#1e1b2e]/20"
           />
-          <p className="font-pixel mt-4 rounded-md border-2 border-[#1e1b2e] bg-white/90 px-3 py-1 text-xs font-bold text-[#1e1b2e]">
+          <p className="font-pixel relative z-10 mt-4 rounded-md border-2 border-[#1e1b2e] bg-white/90 px-3 py-1 text-xs font-bold text-[#1e1b2e]">
             Suasana hati:{" "}
             {mood === "senang"
               ? "Senang dan bersemangat!"
