@@ -80,17 +80,19 @@ files:
     notes: State disimpan di globalThis agar tahan HMR dev; peer dianggap aktif bila heartbeat dalam 10 detik terakhir.
 
   app/api/duel/route.ts:
-    role: Route handler Next.js sebagai server duel antar device; mengelola tantangan, respons terima/tolak, ronde pertanyaan huruf, progres daya serangan (streak), dan resolusi projektil.
+    role: Route handler Next.js sebagai server duel antar device; mengelola tantangan, respons terima/tolak, ronde pertanyaan huruf per pemain, progres daya serangan (streak), dan resolusi projektil.
     exports: [GET, POST]
     depends_on: [lib/letters.ts, lib/duel.ts]
     key_functions:
       - name: resolveRound
-        does: Menutup ronde saat kedua pemain menjawab atau timeout; jawaban benar menambah streak (penuh = 3 -> jawaban benar berikutnya meluncurkan projektil dan streak reset ke 0), salah mengurangi streak satu; dua projektil di ronde sama bertabrakan (collision, tanpa damage), satu projektil mengenai lawan (-20 HP) hingga HP 0 menandai pemenang.
+        does: Menutup ronde saat kedua pemain menjawab atau timeout; setiap pemain dinilai terhadap perintah hurufnya sendiri (commands[0] != commands[1]); jawaban benar menambah streak (penuh = 3 -> jawaban benar berikutnya meluncurkan projektil dan streak reset ke 0), salah mengurangi streak satu; dua projektil di ronde sama bertabrakan (collision, tanpa damage), satu projektil mengenai lawan (-20 HP) hingga HP 0 menandai pemenang.
+      - name: findRelevantDuel
+        does: Memilih duel untuk sebuah device dengan prioritas aktif > pending > hasil akhir terbaru, supaya duel lama yang masih disimpan tidak menaungi duel yang sedang berjalan.
       - name: POST action challenge
         does: Membuat duel pending; menolak bila salah satu device sudah punya duel pending/active.
       - name: POST action respond
-        does: Target menerima (duel jadi active, ronde 1 dengan perintah huruf acak + batas waktu) atau menolak (status declined).
-    notes: State duel disimpan di globalThis (tahan HMR, tidak dipersisten); duel pending kedaluwarsa 30 detik dan hasil akhir disimpan 60 detik; resolusi ronde bersifat lazy saat GET/POST.
+        does: Target menerima (duel jadi active, ronde 1 dengan sepasang perintah huruf acak yang berbeda + batas waktu) atau menolak (status declined).
+    notes: State duel disimpan di globalThis (tahan HMR, tidak dipersisten); duel pending kedaluwarsa 30 detik dan hasil akhir disimpan 60 detik; resolusi ronde bersifat lazy saat GET/POST; respons GET tidak memuat timestamp agar polling client bisa mendeteksi perubahan dengan andal.
 
   lib/letters.ts:
     role: Mengelola daftar huruf A-Z, konfigurasi ronde mini-game, tingkat kesulitan, dan utilitas pengacakan opsi huruf.
@@ -108,8 +110,8 @@ files:
     depends_on: [lib/duelSync.ts]
     key_functions:
       - name: applySnapshot
-        does: Menerjemahkan snapshot polling menjadi state store; status declined hanya diberitahukan ke penantang (players[0]).
-    notes: Duel yang hilang dari server (kedaluwarsa) dibersihkan otomatis.
+        does: Menerjemahkan snapshot polling menjadi state store; status declined hanya diberitahukan ke penantang (players[0]); hasil akhir (finished) dipertahankan walau server sudah membersihkan duel agar layar hasil tidak hilang sebelum pengguna menutupnya.
+    notes: Duel yang hilang dari server (kedaluwarsa) dibersihkan otomatis kecuali hasil akhir yang belum dilihat.
 
   store/usePetStore.ts:
     role: Store Zustand global yang mengatur sinkronisasi state monster dan status mini-game antara React dan Phaser, serta status sinkronisasi LAN dan daftar monster tetangga.

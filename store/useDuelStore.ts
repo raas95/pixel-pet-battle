@@ -22,7 +22,7 @@ type DuelStoreState = {
   clearDeclined: () => void;
 };
 
-export const useDuelStore = create<DuelStoreState>((set) => ({
+export const useDuelStore = create<DuelStoreState>((set, get) => ({
   incoming: null,
   duel: null,
   declined: null,
@@ -42,8 +42,11 @@ export const useDuelStore = create<DuelStoreState>((set) => ({
       next.duel = null;
     } else if (duel) {
       next.duel = duel;
+    } else if (get().duel?.status === "finished") {
+      // Server sudah membersihkan duel lama — pertahankan hasil akhir di
+      // store agar layar hasil tidak hilang sebelum pengguna menutupnya.
+      next.duel = get().duel ?? null;
     } else {
-      // Duel hilang dari server (kedaluwarsa) — bersihkan state.
       next.duel = null;
     }
 

@@ -17,11 +17,12 @@ type DuelStore = {
   duels: Map<string, Duel>;
 };
 
-function randomCommand(previous: string | null): string {
-  const pool = previous
-    ? LETTERS.filter((letter) => letter !== previous)
-    : [...LETTERS];
-  return pool[Math.floor(Math.random() * pool.length)];
+/** Sepasang huruf acak yang berbeda untuk kedua pemain. */
+function randomCommandPair(): [string, string] {
+  const first = LETTERS[Math.floor(Math.random() * LETTERS.length)];
+  const rest = LETTERS.filter((letter) => letter !== first);
+  const second = rest[Math.floor(Math.random() * rest.length)];
+  return [first, second];
 }
 
 // globalThis so dev HMR does not wipe ongoing duels on every edit.
@@ -42,18 +43,39 @@ function prune(now: number): void {
   }
 }
 
-function findDuelFor(deviceId: string): Duel | null {
+/**
+ * Memilih duel yang relevan untuk sebuah device: duel aktif diprioritaskan,
+ * lalu pending, lalu hasil akhir terbaru. Dengan ini duel lama yang masih
+ * disimpan sementara tidak pernah menaungi duel yang sedang berjalan.
+ */
+function findRelevantDuel(deviceId: string): Duel | null {
+  let best: Duel | null = null;
+  let bestRank = -1;
   for (const duel of store.duels.values()) {
-    if (duel.players.some((p) => p.deviceId === deviceId)) {
-      return duel;
+    if (!duel.players.some((p) => p.deviceId === deviceId)) continue;
+    const rank =
+      duel.status === "active" ? 2 : duel.status === "pending" ? 1 : 0;
+    if (
+      rank > bestRank ||
+      (rank === bestRank && best !== null && duel.updatedAt > best.updatedAt)
+    ) {
+      best = duel;
+      bestRank = rank;
     }
   }
-  return null;
+  return best;
 }
 
 function isBusy(deviceId: string): boolean {
-  const duel = findDuelFor(deviceId);
-  return !!duel && (duel.status === "pending" || duel.status === "active");
+  for (const duel of store.duels.values()) {
+    if (
+      (duel.status === "pending" || duel.status === "active") &&
+      duel.players.some((p) => p.deviceId === deviceId)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -61,17 +83,21 @@ function isBusy(deviceId: string): boolean {
  * Streak rules: correct answer +1 streak (capped at charge), wrong answer -1;
  * a correct answer while fully charged launches a projectile and resets the
  * streak to 0. Projectiles launched in the same round collide and cancel out.
+ * Setiap pemain dinilai terhadap perintah hurufnya sendiri.
  */
 function resolveRound(duel: Duel, now: number): void {
-  if (duel.status !== "active" || !duel.command || !duel.roundEndsAt) return;
+  const [commandA, commandB] = duel.commands;
+  if (duel.status !== "active" || !commandA || !commandB || !duel.roundEndsAt) {
+    return;
+  }
 
   const [a, b] = duel.players;
   const bothAnswered = a.answer !== null && b.answer !== null;
   const timedOut = now >= duel.roundEndsAt;
   if (!bothAnswered && !timedOut) return;
 
-  const aCorrect = a.answer !== null && a.answer === duel.command;
-  const bCorrect = b.answer !== null && b.answer === duel.command;
+  const aCorrect = a.answer !== null && a.answer === commandA;
+  const bCorrect = b.answer !== null && b.answer === commandB;
 
   let aLaunches = false;
   let bLaunches = false;
@@ -115,24 +141,29 @@ function resolveRound(duel: Duel, now: number): void {
   if (a.hp === 0 || b.hp === 0) {
     duel.status = "finished";
     duel.winner = a.hp === 0 ? b.deviceId : a.deviceId;
-    duel.command = null;
+    duel.commands = [null, null];
     duel.roundEndsAt = null;
     return;
   }
 
   duel.round += 1;
-  duel.command = randomCommand(duel.command);
+  duel.commands = randomCommandPair();
   duel.roundEndsAt = now + DUEL_ROUND_MS;
   a.answer = null;
   b.answer = null;
 }
 
-function toPublicDuel(duel: Duel) {
+function toPublicDuel(duel: Duel, forDeviceId?: string) {
+  const myIndex = forDeviceId
+    ? duel.players.findIndex((p) => p.deviceId === forDeviceId)
+    : -1;
   return {
     id: duel.id,
     status: duel.status,
     round: duel.round,
-    command: duel.status === "active" ? duel.command : null,
+    // Perintah huruf spesifik untuk peminta; penonton lain tidak melihatnya.
+    command:
+      duel.status === "active" && myIndex >= 0 ? duel.commands[myIndex] : null,
     roundEndsAt: duel.status === "active" ? duel.roundEndsAt : null,
     winner: duel.winner,
     lastEvent: duel.lastEvent,
@@ -155,7 +186,7 @@ export function GET(request: NextRequest) {
     return NextResponse.json({ error: "deviceId wajib ada." }, { status: 400 });
   }
 
-  const duel = findDuelFor(deviceId);
+  const duel = findRelevantDuel(deviceId);
   if (duel) resolveRound(duel, now);
 
   let incoming = null;
@@ -168,10 +199,10 @@ export function GET(request: NextRequest) {
     (duel.status === "active" ||
       duel.status === "finished" ||
       duel.status === "declined")
-      ? toPublicDuel(duel)
+      ? toPublicDuel(duel, deviceId)
       : null;
 
-  return NextResponse.json({ incoming, duel: active, now });
+  return NextResponse.json({ incoming, duel: active });
 }
 
 export async function POST(request: NextRequest) {
@@ -218,7 +249,7 @@ export async function POST(request: NextRequest) {
         { deviceId: targetDeviceId, name: targetName, hp: DUEL_MAX_HP, streak: 0, answer: null },
       ],
       round: 1,
-      command: null,
+      commands: [null, null],
       roundEndsAt: null,
       winner: null,
       lastEvent: null,
@@ -238,10 +269,13 @@ export async function POST(request: NextRequest) {
     if (accept) {
       duel.status = "active";
       duel.round = 1;
-      duel.command = randomCommand(null);
+      duel.commands = randomCommandPair();
       duel.roundEndsAt = now + DUEL_ROUND_MS;
       duel.updatedAt = now;
-      return NextResponse.json({ status: duel.status, duel: toPublicDuel(duel) });
+      return NextResponse.json({
+        status: duel.status,
+        duel: toPublicDuel(duel, deviceId),
+      });
     }
     duel.status = "declined";
     duel.updatedAt = now;
@@ -265,7 +299,10 @@ export async function POST(request: NextRequest) {
     }
     player.answer = answer;
     resolveRound(duel, now);
-    return NextResponse.json({ status: duel.status, duel: toPublicDuel(duel) });
+    return NextResponse.json({
+      status: duel.status,
+      duel: toPublicDuel(duel, deviceId),
+    });
   }
 
   return NextResponse.json({ error: "Action tidak dikenal." }, { status: 400 });

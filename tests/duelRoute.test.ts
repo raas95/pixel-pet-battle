@@ -4,6 +4,21 @@ import { DUEL_DAMAGE, DUEL_MAX_HP, DUEL_ROUND_MS } from "@/lib/duel";
 
 type RouteModule = typeof import("@/app/api/duel/route");
 
+type PublicDuel = {
+  status: string;
+  round: number;
+  command: string | null;
+  winner: string | null;
+  lastEvent: { type: string; byDeviceId: string | null; round: number } | null;
+  players: {
+    deviceId: string;
+    name: string;
+    hp: number;
+    streak: number;
+    answered: boolean;
+  }[];
+};
+
 async function importFreshRoute(): Promise<RouteModule> {
   vi.resetModules();
   delete (globalThis as unknown as { __duelStore?: unknown }).__duelStore;
@@ -20,6 +35,10 @@ function postJson(body: Record<string, unknown>) {
 
 function getStatus(deviceId: string) {
   return new NextRequest(`http://localhost/api/duel?deviceId=${deviceId}`);
+}
+
+function wrongLetter(command: string): string {
+  return command === "A" ? "B" : "A";
 }
 
 describe("route duel /api/duel", () => {
@@ -43,11 +62,42 @@ describe("route duel /api/duel", () => {
       })
     );
     const { duelId } = await challenge.json();
-    const respond = await route.POST(
+    await route.POST(
       postJson({ action: "respond", deviceId: "dev-b", duelId, accept: true })
     );
-    const { duel } = await respond.json();
-    return { duelId, command: duel.command as string };
+    return duelId;
+  }
+
+  async function getDuel(deviceId: string): Promise<PublicDuel> {
+    const res = await route.GET(getStatus(deviceId));
+    return (await res.json()).duel;
+  }
+
+  /** Jawab satu ronde; benarA/benarB menentukan jawaban tiap pemain. */
+  async function playRound(
+    duelId: string,
+    benarA: boolean,
+    benarB: boolean
+  ): Promise<PublicDuel> {
+    const cmdA = (await getDuel("dev-a")).command!;
+    const cmdB = (await getDuel("dev-b")).command!;
+    await route.POST(
+      postJson({
+        action: "answer",
+        deviceId: "dev-a",
+        duelId,
+        answer: benarA ? cmdA : wrongLetter(cmdA),
+      })
+    );
+    await route.POST(
+      postJson({
+        action: "answer",
+        deviceId: "dev-b",
+        duelId,
+        answer: benarB ? cmdB : wrongLetter(cmdB),
+      })
+    );
+    return getDuel("dev-a");
   }
 
   it("tantangan muncul sebagai incoming di device target", async () => {
@@ -86,127 +136,110 @@ describe("route duel /api/duel", () => {
     expect(data.duel.status).toBe("declined");
   });
 
-  it("menerima tantangan memulai duel dengan perintah huruf", async () => {
-    const { command } = await setupActiveDuel();
-    expect(command).toMatch(/^[A-Z]$/);
+  it("perintah ronde kedua pemain berbeda satu sama lain", async () => {
+    const duelId = await setupActiveDuel();
+    const cmdA = (await getDuel("dev-a")).command;
+    const cmdB = (await getDuel("dev-b")).command;
+    expect(cmdA).toMatch(/^[A-Z]$/);
+    expect(cmdB).toMatch(/^[A-Z]$/);
+    expect(cmdA).not.toBe(cmdB);
+
+    // Tetap berbeda setelah ronde berganti.
+    await playRound(duelId, true, true);
+    const nextA = (await getDuel("dev-a")).command;
+    const nextB = (await getDuel("dev-b")).command;
+    expect(nextA).not.toBe(nextB);
   });
 
   it("jawaban benar menambah streak; jawaban salah mengurangi satu", async () => {
-    const { duelId, command } = await setupActiveDuel();
-    const wrong = command === "A" ? "B" : "A";
+    const duelId = await setupActiveDuel();
 
     // Ronde 1: A benar (streak 1), B salah (tetap 0).
-    await route.POST(postJson({ action: "answer", deviceId: "dev-a", duelId, answer: command }));
-    await route.POST(postJson({ action: "answer", deviceId: "dev-b", duelId, answer: wrong }));
-
+    await playRound(duelId, true, false);
     // Ronde 2: A benar (streak 2), B benar (streak 1).
-    let res = await route.GET(getStatus("dev-a"));
-    let { duel } = await res.json();
-    const command2 = duel.command as string;
-    const wrong2 = command2 === "A" ? "B" : "A";
-    await route.POST(postJson({ action: "answer", deviceId: "dev-a", duelId, answer: command2 }));
-    await route.POST(postJson({ action: "answer", deviceId: "dev-b", duelId, answer: command2 }));
-
+    await playRound(duelId, true, true);
     // Ronde 3: A salah (streak 2 -> 1), B benar (streak 2).
-    res = await route.GET(getStatus("dev-a"));
-    duel = (await res.json()).duel;
-    const command3 = duel.command as string;
-    const wrong3 = command3 === "A" ? "B" : "A";
-    await route.POST(postJson({ action: "answer", deviceId: "dev-a", duelId, answer: wrong3 }));
-    await route.POST(postJson({ action: "answer", deviceId: "dev-b", duelId, answer: command3 }));
+    const duel = await playRound(duelId, false, true);
 
-    res = await route.GET(getStatus("dev-a"));
-    duel = (await res.json()).duel;
-    const a = duel.players.find((p: { deviceId: string }) => p.deviceId === "dev-a");
-    const b = duel.players.find((p: { deviceId: string }) => p.deviceId === "dev-b");
+    const a = duel.players.find((p) => p.deviceId === "dev-a")!;
+    const b = duel.players.find((p) => p.deviceId === "dev-b")!;
     expect(a.streak).toBe(1);
     expect(b.streak).toBe(2);
     expect(a.hp).toBe(DUEL_MAX_HP);
-    expect(duel.lastEvent.type).toBe("none");
-    void wrong2;
+    expect(duel.lastEvent!.type).toBe("none");
   });
 
   it("jawaban benar ke-4 meluncurkan projektil dan mereset streak ke 0", async () => {
-    const { duelId } = await setupActiveDuel();
-    // 3 ronde: A selalu benar -> streak 3; B selalu salah.
-    for (let round = 0; round < 3; round++) {
-      const res = await route.GET(getStatus("dev-a"));
-      const { duel } = await res.json();
-      const command = duel.command as string;
-      const wrong = command === "A" ? "B" : "A";
-      await route.POST(postJson({ action: "answer", deviceId: "dev-a", duelId, answer: command }));
-      await route.POST(postJson({ action: "answer", deviceId: "dev-b", duelId, answer: wrong }));
+    const duelId = await setupActiveDuel();
+    // 3 ronde A benar -> streak 3; B selalu salah.
+    for (let i = 0; i < 3; i++) {
+      await playRound(duelId, true, false);
     }
+    let duel = await getDuel("dev-a");
+    expect(duel.players.find((p) => p.deviceId === "dev-a")!.streak).toBe(3);
 
-    // Ronde 4: A benar lagi (streak 3 -> luncurkan, reset 0); B salah.
-    let res = await route.GET(getStatus("dev-a"));
-    let duel = (await res.json()).duel;
-    expect(duel.players.find((p: { deviceId: string }) => p.deviceId === "dev-a").streak).toBe(3);
+    // Ronde 4: A benar lagi -> luncurkan, reset 0; B salah.
+    duel = await playRound(duelId, true, false);
 
-    const command = duel.command as string;
-    const wrong = command === "A" ? "B" : "A";
-    await route.POST(postJson({ action: "answer", deviceId: "dev-a", duelId, answer: command }));
-    await route.POST(postJson({ action: "answer", deviceId: "dev-b", duelId, answer: wrong }));
-
-    res = await route.GET(getStatus("dev-a"));
-    duel = (await res.json()).duel;
-    const a = duel.players.find((p: { deviceId: string }) => p.deviceId === "dev-a");
-    const b = duel.players.find((p: { deviceId: string }) => p.deviceId === "dev-b");
+    const a = duel.players.find((p) => p.deviceId === "dev-a")!;
+    const b = duel.players.find((p) => p.deviceId === "dev-b")!;
     expect(a.streak).toBe(0);
     expect(b.hp).toBe(DUEL_MAX_HP - DUEL_DAMAGE);
-    expect(duel.lastEvent.type).toBe("hit");
-    expect(duel.lastEvent.byDeviceId).toBe("dev-a");
+    expect(duel.lastEvent!.type).toBe("hit");
+    expect(duel.lastEvent!.byDeviceId).toBe("dev-a");
   });
 
   it("dua projektil di ronde yang sama bertabrakan dan batal", async () => {
-    const { duelId } = await setupActiveDuel();
+    const duelId = await setupActiveDuel();
     // Kedua pemain benar 3 ronde -> streak 3-3.
-    for (let round = 0; round < 3; round++) {
-      const res = await route.GET(getStatus("dev-a"));
-      const { duel } = await res.json();
-      const command = duel.command as string;
-      await route.POST(postJson({ action: "answer", deviceId: "dev-a", duelId, answer: command }));
-      await route.POST(postJson({ action: "answer", deviceId: "dev-b", duelId, answer: command }));
+    for (let i = 0; i < 3; i++) {
+      await playRound(duelId, true, true);
     }
     // Ronde 4: keduanya benar -> keduanya meluncurkan -> tabrakan.
-    let res = await route.GET(getStatus("dev-a"));
-    let duel = (await res.json()).duel;
-    const command = duel.command as string;
-    await route.POST(postJson({ action: "answer", deviceId: "dev-a", duelId, answer: command }));
-    await route.POST(postJson({ action: "answer", deviceId: "dev-b", duelId, answer: command }));
+    const duel = await playRound(duelId, true, true);
 
-    res = await route.GET(getStatus("dev-a"));
-    duel = (await res.json()).duel;
-    expect(duel.lastEvent.type).toBe("collision");
-    expect(duel.players.every((p: { hp: number }) => p.hp === DUEL_MAX_HP)).toBe(true);
-    expect(duel.players.every((p: { streak: number }) => p.streak === 0)).toBe(true);
+    expect(duel.lastEvent!.type).toBe("collision");
+    expect(duel.players.every((p) => p.hp === DUEL_MAX_HP)).toBe(true);
+    expect(duel.players.every((p) => p.streak === 0)).toBe(true);
   });
 
   it("HP habis menandai duel selesai dengan pemenang yang tepat", async () => {
-    const { duelId } = await setupActiveDuel();
+    const duelId = await setupActiveDuel();
     // A selalu benar (serangan tiap 4 ronde), B selalu salah.
     // Damage 20 dari HP 100 -> 5 serangan -> 20 ronde.
     for (let round = 0; round < 20; round++) {
-      const res = await route.GET(getStatus("dev-a"));
-      const { duel } = await res.json();
+      const duel = await getDuel("dev-a");
       if (duel.status === "finished") break;
-      const command = duel.command as string;
-      const wrong = command === "A" ? "B" : "A";
-      await route.POST(postJson({ action: "answer", deviceId: "dev-a", duelId, answer: command }));
-      await route.POST(postJson({ action: "answer", deviceId: "dev-b", duelId, answer: wrong }));
+      await playRound(duelId, true, false);
     }
-    const res = await route.GET(getStatus("dev-a"));
-    const { duel } = await res.json();
+    const duel = await getDuel("dev-a");
     expect(duel.status).toBe("finished");
     expect(duel.winner).toBe("dev-a");
-    const b = duel.players.find((p: { deviceId: string }) => p.deviceId === "dev-b");
-    expect(b.hp).toBe(0);
+    expect(duel.players.find((p) => p.deviceId === "dev-b")!.hp).toBe(0);
+  });
+
+  it("duel baru tetap terliwal walau duel lama masih disimpan", async () => {
+    // Duel pertama selesai (masih disimpan 60 detik).
+    const firstId = await setupActiveDuel();
+    for (let i = 0; i < 20; i++) {
+      const duel = await getDuel("dev-a");
+      if (duel.status === "finished") break;
+      await playRound(firstId, true, false);
+    }
+
+    // Duel kedua antara pemain yang sama harus tetap terlihat sebagai aktif.
+    const secondId = await setupActiveDuel();
+    const duel = await getDuel("dev-a");
+    expect(secondId).not.toBe(firstId);
+    expect(duel.status).toBe("active");
+    expect(duel.players.every((p) => p.hp === DUEL_MAX_HP)).toBe(true);
   });
 
   it("menolak jawaban dari device yang bukan pemain", async () => {
-    const { duelId, command } = await setupActiveDuel();
+    const duelId = await setupActiveDuel();
+    const cmdA = (await getDuel("dev-a")).command!;
     const res = await route.POST(
-      postJson({ action: "answer", deviceId: "dev-x", duelId, answer: command })
+      postJson({ action: "answer", deviceId: "dev-x", duelId, answer: cmdA })
     );
     expect(res.status).toBe(403);
   });
@@ -228,16 +261,14 @@ describe("route duel /api/duel", () => {
   it("ronde yang tidak dijawab kedua pemain selesai lewat timeout", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(Date.now());
-    const { duelId } = await setupActiveDuel();
+    await setupActiveDuel();
 
     vi.setSystemTime(Date.now() + DUEL_ROUND_MS + 500);
-    const res = await route.GET(getStatus("dev-a"));
-    const { duel } = await res.json();
+    const duel = await getDuel("dev-a");
 
     // Timeout dianggap salah: streak turun satu dari 0 tetap 0, HP utuh.
     expect(duel.round).toBe(2);
-    expect(duel.players.every((p: { hp: number }) => p.hp === DUEL_MAX_HP)).toBe(true);
+    expect(duel.players.every((p) => p.hp === DUEL_MAX_HP)).toBe(true);
     vi.useRealTimers();
-    void duelId;
   });
 });
